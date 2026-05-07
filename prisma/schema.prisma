@@ -1,0 +1,341 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  ADMIN
+  DEV
+  CANDIDATE
+  FRANCHISEE
+}
+
+enum CandidateStatusGlobal {
+  NEW
+  ACTIVE
+  INACTIVE
+  WON
+  LOST
+}
+
+enum HeatScore {
+  COLD
+  MEDIUM
+  HOT
+}
+
+enum CandidateStepStatus {
+  LOCKED
+  AVAILABLE
+  PENDING
+  COMPLETED
+  REJECTED
+}
+
+enum LocalProjectStatus {
+  DRAFT
+  SUBMITTED
+  VALIDATED
+  REJECTED
+}
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+}
+
+enum PaymentType {
+  DISCOVERY_DAY
+  ENTRY_FEE
+  TRAINING
+}
+
+enum DocuSignEnvelopeStatus {
+  CREATED
+  SENT
+  DELIVERED
+  COMPLETED
+  DECLINED
+  VOIDED
+}
+
+model User {
+  id                String                @id @default(cuid())
+  email             String                @unique
+  firstname         String
+  lastname          String
+  phone             String?
+  password          String
+  role              UserRole
+  isActive          Boolean               @default(true)
+  createdAt         DateTime              @default(now())
+  candidateProfile  Candidate?
+  assignedCandidates Candidate[]          @relation("AssignedDevCandidates")
+  validatedSteps    CandidateStep[]       @relation("ValidatedBy")
+  uploadedDocuments Document[]            @relation("UploadedBy")
+  validatedLocals   LocalProject[]        @relation("LocalValidatedBy")
+  adminNotes        NoteAdmin[]           @relation("NoteAuthor")
+  reminders         Reminder[]            @relation("ReminderAssignedTo")
+  logs              EventLog[]
+  googleAccount     GoogleAccount?
+  franchiseeProfile Franchisee?
+}
+
+model Candidate {
+  id                  String                @id @default(cuid())
+  userId              String                @unique
+  address             String?
+  city                String
+  zipcode             String?
+  source              String?
+  birthDate           String?
+  familySituation     String?
+  childrenCount       String?
+  profession          String?
+  professionalSituation String?
+  projectZone         String?
+  projectDelay        String?
+  personalContribution String?
+  motivation          String?
+  entrepreneurshipExperience String?
+  applicationNotes    String?
+  latitude            Float?
+  longitude           Float?
+  isArchived          Boolean               @default(false)
+  archivedAt          DateTime?
+  statusGlobal        CandidateStatusGlobal @default(NEW)
+  currentStep         Int                   @default(1)
+  scoreHeat           HeatScore             @default(COLD)
+  assignedDevId       String?
+  onboardingToken     String?               @unique
+  tokenExpirationDate DateTime?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  lastActivityAt      DateTime              @default(now())
+  user                User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignedDev         User?                 @relation("AssignedDevCandidates", fields: [assignedDevId], references: [id])
+  steps               CandidateStep[]
+  documents           Document[]
+  localProjects       LocalProject[]
+  notes               NoteAdmin[]
+  reminders           Reminder[]
+  eventLogs           EventLog[]
+  appointments        Appointment[]
+  payments            Payment[]
+  docusignEnvelopes   DocuSignEnvelope[]
+  emailLogs           EmailLog[]
+}
+
+model CandidateStep {
+  id                String              @id @default(cuid())
+  candidateId       String
+  stepNumber        Int
+  status            CandidateStepStatus @default(LOCKED)
+  completedAt       DateTime?
+  validatedById     String?
+  validationComment String?
+  candidate         Candidate           @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  validatedBy       User?               @relation("ValidatedBy", fields: [validatedById], references: [id])
+
+  @@unique([candidateId, stepNumber])
+}
+
+model Document {
+  id           String   @id @default(cuid())
+  candidateId  String?
+  franchiseeId String?
+  stepNumber   Int?
+  type         String
+  fileUrl      String
+  fileName     String
+  mimeType     String
+  uploadedById String
+  uploadedAt   DateTime @default(now())
+  candidate    Candidate? @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  franchisee   Franchisee? @relation(fields: [franchiseeId], references: [id], onDelete: Cascade)
+  uploadedBy   User      @relation("UploadedBy", fields: [uploadedById], references: [id])
+}
+
+model LocalProject {
+  id             String             @id @default(cuid())
+  candidateId    String
+  address        String
+  city           String
+  zipcode        String
+  surfaceM2      Float
+  notesCandidate String?
+  status         LocalProjectStatus @default(DRAFT)
+  validatedById  String?
+  validatedAt    DateTime?
+  candidate      Candidate          @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  validatedBy    User?              @relation("LocalValidatedBy", fields: [validatedById], references: [id])
+  files          LocalFile[]
+}
+
+model LocalFile {
+  id             String   @id @default(cuid())
+  localProjectId String
+  fileUrl        String
+  fileType       String
+  uploadedAt     DateTime @default(now())
+  localProject   LocalProject @relation(fields: [localProjectId], references: [id], onDelete: Cascade)
+}
+
+model NoteAdmin {
+  id          String   @id @default(cuid())
+  candidateId String
+  authorId    String
+  noteText    String
+  createdAt   DateTime @default(now())
+  candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  author      User     @relation("NoteAuthor", fields: [authorId], references: [id])
+}
+
+model Reminder {
+  id            String   @id @default(cuid())
+  candidateId   String
+  assignedToId  String
+  reminderTitle String
+  reminderText  String?
+  dueDate       DateTime
+  isDone        Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  candidate     Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  assignedTo    User     @relation("ReminderAssignedTo", fields: [assignedToId], references: [id])
+}
+
+model EventLog {
+  id           String   @id @default(cuid())
+  candidateId  String?
+  franchiseeId String?
+  userId       String?
+  actionType   String
+  detailsJson  Json
+  createdAt    DateTime @default(now())
+  candidate    Candidate? @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  franchisee   Franchisee? @relation(fields: [franchiseeId], references: [id], onDelete: Cascade)
+  user         User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model Appointment {
+  id              String            @id @default(cuid())
+  candidateId     String
+  googleEventId   String?
+  appointmentType String
+  startDatetime   DateTime
+  endDatetime     DateTime
+  status          AppointmentStatus @default(PENDING)
+  createdAt       DateTime          @default(now())
+  candidate       Candidate         @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+}
+
+model Payment {
+  id              String        @id @default(cuid())
+  candidateId     String
+  stripePaymentId String?
+  amount          Int
+  currency        String
+  status          PaymentStatus @default(PENDING)
+  paymentType     PaymentType
+  createdAt       DateTime      @default(now())
+  candidate       Candidate     @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+}
+
+model Franchisee {
+  id          String     @id @default(cuid())
+  userId      String     @unique
+  address     String?
+  city        String
+  openingDate DateTime?
+  latitude    Float?
+  longitude   Float?
+  createdAt   DateTime   @default(now())
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documents   Document[]
+  eventLogs   EventLog[]
+  kpis        KpiMonthly[]
+}
+
+model KpiMonthly {
+  id           String   @id @default(cuid())
+  franchiseeId String
+  month        DateTime
+  revenue      Float
+  createdAt    DateTime @default(now())
+  franchisee   Franchisee @relation(fields: [franchiseeId], references: [id], onDelete: Cascade)
+}
+
+model DocuSignEnvelope {
+  id            String                 @id @default(cuid())
+  candidateId   String
+  stepNumber    Int
+  envelopeId    String                 @unique
+  status        DocuSignEnvelopeStatus @default(CREATED)
+  signedFileUrl String?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  candidate     Candidate              @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+}
+
+model EmailTemplate {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  subject   String
+  bodyText  String
+  bodyHtml  String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model EmailLog {
+  id           String   @id @default(cuid())
+  candidateId  String?
+  templateSlug String?
+  to           String
+  subject      String
+  sentAt       DateTime @default(now())
+  status       String
+  candidate    Candidate? @relation(fields: [candidateId], references: [id], onDelete: SetNull)
+}
+
+model GoogleAccount {
+  id                 String @id @default(cuid())
+  userId             String @unique
+  googleRefreshToken String
+  googleCalendarId   String
+  user               User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model StepConfig {
+  id                   String   @id @default(cuid())
+  stepNumber           Int      @unique
+  name                 String
+  descriptionAdmin     String
+  descriptionCandidate String
+  requiredDocuments    Json
+  isActive             Boolean  @default(true)
+}
+
+model TrainingSession {
+  id         String   @id @default(cuid())
+  startDate  DateTime
+  endDate    DateTime
+  maxSlots   Int
+  bookedSlots Int    @default(0)
+  location   String
+  notes      String?
+  createdAt  DateTime @default(now())
+}

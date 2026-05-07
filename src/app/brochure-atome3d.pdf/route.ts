@@ -1,0 +1,48 @@
+const pdfContent = `%PDF-1.1
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Count 1 /Kids [3 0 R] >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
+endobj
+4 0 obj
+<< /Length 98 >>
+stream
+BT
+/F1 24 Tf
+72 760 Td
+(Brochure Atome3D) Tj
+0 -32 Td
+/F1 12 Tf
+(Presentation du parcours franchise Atome3D.) Tj
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000010 00000 n 
+0000000063 00000 n 
+0000000122 00000 n 
+0000000248 00000 n 
+0000000397 00000 n 
+trailer
+<< /Root 1 0 R /Size 6 >>
+startxref
+467
+%%EOF`;
+
+export async function GET() {
+  return new Response(pdfContent, {
+    headers: {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": 'inline; filename="brochure-atome3d.pdf"'
+    }
+  });
+}

@@ -1,0 +1,34 @@
+@import "leaflet/dist/leaflet.css";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --background: 248 250 252;
+  --foreground: 15 23 42;
+  --card: 255 255 255;
+  --muted: 241 245 249;
+  --border: 226 232 240;
+  --success: 34 197 94;
+  --warning: 245 158 11;
+  --danger: 239 68 68;
+}
+
+body {
+  @apply min-h-screen bg-slate-50 bg-hero-grid text-slate-900 antialiased;
+}
+
+a {
+  @apply text-brand-700 transition hover:text-brand-600;
+}
+
+input,
+textarea,
+select {
+  @apply w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm outline-none transition focus:border-brand-400 focus:ring-2 focus:ring-brand-100;
+}
+
+button {
+  @apply transition;
+}
