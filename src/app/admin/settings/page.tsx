@@ -1,46 +1,63 @@
-import { Card } from "@/components/ui/card";
+import { SettingsPanel } from "@/components/admin/settings-panel";
+import { getAppSettings, resolveUserProfile } from "@/lib/services/settings-store";
+import { requireRole } from "@/lib/auth/session";
+import { isGoogleCalendarConfigured } from "@/lib/integrations/google-oauth";
 import { prisma } from "@/lib/db/prisma";
+import { workflowSections } from "@/app/admin/workflow/page";
 
-export default async function AdminSettingsPage() {
-  const [steps, templates, trainings] = await Promise.all([
-    prisma.stepConfig.findMany({ orderBy: { stepNumber: "asc" } }),
-    prisma.emailTemplate.findMany({ orderBy: { createdAt: "asc" } }),
-    prisma.trainingSession.findMany({ orderBy: { startDate: "asc" } })
+export default async function AdminSettingsPage({
+  searchParams
+}: {
+  searchParams?: Record<string, string | string[] | undefined>;
+}) {
+  const session = await requireRole(["ADMIN", "DEV"]);
+  const [settings, googleAccount] = await Promise.all([
+    getAppSettings(),
+    prisma.googleAccount.findUnique({ where: { userId: session.user.id } })
   ]);
+  const profile = resolveUserProfile({
+    settings,
+    user: {
+      id: session.user.id,
+      firstname: session.user.firstname ?? "",
+      lastname: session.user.lastname ?? "",
+      email: session.user.email ?? "",
+      phone: "",
+      role: session.user.role
+    }
+  });
+  const googleStatus = Array.isArray(searchParams?.google)
+    ? searchParams?.google[0]
+    : searchParams?.google;
+  const googleDetail = Array.isArray(searchParams?.detail)
+    ? searchParams?.detail[0]
+    : searchParams?.detail;
 
   return (
     <div className="grid gap-6">
-      <Card className="space-y-3">
-        <h2 className="text-2xl font-bold">Configuration des étapes</h2>
-        {steps.map((step) => (
-          <div key={step.id} className="rounded-2xl border border-slate-200 p-4">
-            <p className="font-semibold">
-              Étape {step.stepNumber} · {step.name}
-            </p>
-            <p className="mt-1 text-sm text-slate-500">{step.descriptionAdmin}</p>
-          </div>
-        ))}
-      </Card>
-      <Card className="space-y-3">
-        <h2 className="text-2xl font-bold">Templates email</h2>
-        {templates.map((template) => (
-          <div key={template.id} className="rounded-2xl border border-slate-200 p-4">
-            <p className="font-semibold">{template.slug}</p>
-            <p className="text-sm text-slate-500">{template.subject}</p>
-          </div>
-        ))}
-      </Card>
-      <Card className="space-y-3">
-        <h2 className="text-2xl font-bold">Sessions de formation</h2>
-        {trainings.map((training) => (
-          <div key={training.id} className="rounded-2xl border border-slate-200 p-4">
-            <p className="font-semibold">{training.location}</p>
-            <p className="text-sm text-slate-500">
-              {new Date(training.startDate).toLocaleDateString("fr-FR")} - {new Date(training.endDate).toLocaleDateString("fr-FR")}
-            </p>
-          </div>
-        ))}
-      </Card>
+      <SettingsPanel
+        initialBrandName={settings.brandName}
+        initialSenderEmail={settings.senderEmail}
+        initialBrandLogoDataUrl={settings.brandLogoDataUrl}
+        initialSuperAdminUserId={settings.superAdminUserId || session.user.id}
+        initialSuperAdminName={settings.superAdminName || `${session.user.firstname} ${session.user.lastname}`.trim()}
+        initialSuperAdminEmail={settings.superAdminEmail || session.user.email || ""}
+        initialMappingManagerFirstname={settings.mappingManagerFirstname}
+        initialMappingManagerLastname={settings.mappingManagerLastname}
+        initialMappingManagerEmail={settings.mappingManagerEmail}
+        initialMappingManagerPhone={settings.mappingManagerPhone}
+        initialMappingPortalToken={settings.mappingPortalToken}
+        initialUserProfile={profile}
+        currentUserId={session.user.id}
+        initialGoogleCalendar={{
+          configured: isGoogleCalendarConfigured(),
+          connected: Boolean(googleAccount),
+          calendarEmail: googleAccount?.googleCalendarId || settings.senderEmail,
+          status: googleStatus,
+          detail: googleDetail
+        }}
+        workflowSections={workflowSections.map((section) => ({ ...section, items: [...section.items] }))}
+      />
     </div>
   );
 }

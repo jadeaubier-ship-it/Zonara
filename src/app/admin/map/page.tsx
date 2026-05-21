@@ -1,8 +1,10 @@
-import dynamic from "next/dynamic";
+import nextDynamic from "next/dynamic";
 import { Card } from "@/components/ui/card";
 import { prisma } from "@/lib/db/prisma";
 
-const FranceMap = dynamic(() => import("@/components/maps/france-map").then((mod) => mod.FranceMap), {
+export const dynamic = "force-dynamic";
+
+const FranceMap = nextDynamic(() => import("@/components/maps/france-map").then((mod) => mod.FranceMap), {
   ssr: false
 });
 

@@ -1,0 +1,1 @@
+self.__REACT_LOADABLE_MANIFEST="{\"components/admin/candidates-table.tsx -> @/components/maps/candidate-mini-map\":{\"id\":\"components/admin/candidates-table.tsx -> @/components/maps/candidate-mini-map\",\"files\":[]}}"

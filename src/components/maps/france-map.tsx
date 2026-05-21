@@ -3,6 +3,7 @@
 import L from "leaflet";
 import { useRef } from "react";
 import { useRouter } from "next/navigation";
+import type { Route } from "next";
 import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
 
 const candidateIcon = L.divIcon({
@@ -41,7 +42,7 @@ export function FranceMap({
       <MapContainer center={[46.6, 2.2]} zoom={5.4} scrollWheelZoom className="h-full w-full">
         <TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
         {points.map((point) => (
-          <HoverableMarker key={point.id} point={point} onNavigate={(href) => router.push(href)} />
+          <HoverableMarker key={point.id} point={point} onNavigate={(href) => router.push(href as Route)} />
         ))}
       </MapContainer>
     </div>

@@ -16,7 +16,7 @@ export default async function FranchiseeLayout({ children }: { children: React.R
       <div className="space-y-6">
         <DashboardHeader
           title="Votre activité réseau"
-          subtitle="Suivez vos KPI, vos revenus et les documents du réseau Atome3D."
+          subtitle="Suivez vos KPI, vos revenus et les documents du réseau Zonara."
           userName={`${session.user.firstname} ${session.user.lastname}`}
         />
         {children}

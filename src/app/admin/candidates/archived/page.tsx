@@ -1,6 +1,8 @@
 import { CandidatesTable } from "@/components/admin/candidates-table";
 import { getCandidateList } from "@/lib/services/candidate";
 
+export const dynamic = "force-dynamic";
+
 export default async function AdminArchivedCandidatesPage() {
   const candidates = await getCandidateList({ includeArchived: true });
 

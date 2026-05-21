@@ -1,4 +1,4 @@
-export const APP_NAME = "Atome3D";
+export const APP_NAME = "Zonara";
 export const ROLE_REDIRECTS = {
   ADMIN: "/admin/candidates",
   DEV: "/admin/candidates",
@@ -12,7 +12,7 @@ export const STEP_LABELS = [
   "Visio candidat",
   "Journée découverte",
   "DIP et ELM",
-  "Projet local",
+  "Projet local et statuts",
   "Pièces société",
   "Contrat et formation",
   "Devis menuisier",

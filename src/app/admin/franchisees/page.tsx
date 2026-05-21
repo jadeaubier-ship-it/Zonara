@@ -1,6 +1,8 @@
 import { FranchiseeSummaryCard } from "@/components/admin/franchisee-summary-card";
 import { prisma } from "@/lib/db/prisma";
 
+export const dynamic = "force-dynamic";
+
 export default async function FranchiseesPage() {
   const franchisees = await prisma.franchisee.findMany({
     include: { user: true, kpis: true },

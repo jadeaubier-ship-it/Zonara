@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 
 export async function logEvent(input: {
@@ -13,7 +14,7 @@ export async function logEvent(input: {
       userId: input.userId,
       candidateId: input.candidateId,
       franchiseeId: input.franchiseeId,
-      detailsJson: input.detailsJson ?? {}
+      detailsJson: (input.detailsJson ?? {}) as Prisma.InputJsonValue
     }
   });
 }

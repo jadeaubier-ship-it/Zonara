@@ -38,7 +38,7 @@ const steps = [
     stepNumber: 3,
     name: "Visio candidat",
     descriptionAdmin: "Réservation d'un rendez-vous de découverte avec le chargé de développement.",
-    descriptionCandidate: "Choisissez un créneau de visio avec votre interlocuteur Atome3D.",
+    descriptionCandidate: "Choisissez un créneau de visio avec votre interlocuteur Zonara.",
     requiredDocuments: []
   },
   {
@@ -57,37 +57,54 @@ const steps = [
   },
   {
     stepNumber: 6,
-    name: "Projet local",
-    descriptionAdmin: "Accord bancaire et dépôt de projets de locaux avec pièces jointes.",
-    descriptionCandidate: "Ajoutez votre accord bancaire et au moins un projet de local.",
-    requiredDocuments: ["accord_bancaire", "plans_local", "photos_local"]
+    name: "Projet local et statuts",
+    descriptionAdmin:
+      "Le délai légal du DIP est terminé. Le candidat peut déposer ses pistes de locaux, ses plans, son business plan et les premières pièces société.",
+    descriptionCandidate:
+      "Votre espace a été mis à jour afin de télécharger les différents éléments permettant d’étudier l’ouverture de votre agence Atome3D.",
+    requiredDocuments: [
+      "plans_local",
+      "photos_local",
+      "business_plan",
+      "statuts",
+      "kbis",
+      "carte_identite",
+      "justificatif_domicile",
+      "rib_societe"
+    ]
   },
   {
     stepNumber: 7,
     name: "Pièces société",
-    descriptionAdmin: "Contrôle des statuts et du KBIS.",
-    descriptionCandidate: "Déposez vos statuts et votre KBIS.",
-    requiredDocuments: ["statuts", "kbis"]
+    descriptionAdmin:
+      "Les pièces société deviennent obligatoires. Le candidat doit au minimum fournir ses projets de statuts ou son KBIS définitif, ainsi que les pièces administratives nécessaires.",
+    descriptionCandidate:
+      "Déposez les pièces administratives et société attendues pour poursuivre votre parcours.",
+    requiredDocuments: ["statuts", "kbis", "carte_identite", "justificatif_domicile", "rib_societe"]
   },
   {
     stepNumber: 8,
     name: "Contrat et formation",
-    descriptionAdmin: "Choix du contrat, signatures DocuSign puis réservation de la formation.",
-    descriptionCandidate: "Signez les documents contractuels et choisissez une session de formation.",
-    requiredDocuments: ["contrat_franchise", "plan_3d"]
+    descriptionAdmin:
+      "Upload du contrat de réservation ou du contrat définitif, puis planification des dates de formation et notification à l’équipe formation.",
+    descriptionCandidate:
+      "Consultez les éléments contractuels et vos prochaines dates de formation.",
+    requiredDocuments: ["contrat_reservation_zone", "contrat_definitif", "plan_3d_local"]
   },
   {
     stepNumber: 9,
     name: "Devis menuisier",
-    descriptionAdmin: "Upload du devis menuisier et envoi automatique au partenaire.",
-    descriptionCandidate: "Signez le devis menuisier pour lancer l'aménagement.",
-    requiredDocuments: ["devis_menuisier"]
+    descriptionAdmin:
+      "Le responsable développement ajoute le plan 3D du local et le devis menuisier. Le candidat renvoie ensuite le devis menuisier signé.",
+    descriptionCandidate:
+      "Consultez le devis menuisier puis renvoyez le devis signé pour préparer l’aménagement.",
+    requiredDocuments: ["plan_3d_local", "devis_menuisier", "devis_menuisier_signe"]
   },
   {
     stepNumber: 10,
     name: "Conversion franchisé",
     descriptionAdmin: "Conversion manuelle du candidat en franchisé et activation du réseau.",
-    descriptionCandidate: "Bienvenue dans le réseau Atome3D.",
+    descriptionCandidate: "Bienvenue dans le réseau Zonara.",
     requiredDocuments: []
   }
 ];
@@ -101,7 +118,7 @@ async function main() {
     create: {
       email: "admin@atome3d.fr",
       firstname: "Admin",
-      lastname: "Atome3D",
+      lastname: "Zonara",
       password,
       role: "ADMIN"
     }
@@ -120,11 +137,37 @@ async function main() {
     update: {},
     create: {
       slug: "welcome-candidate",
-      subject: "Bienvenue dans votre parcours Atome3D",
+      subject: "Bienvenue dans votre parcours Zonara",
       bodyText:
-        "Bonjour {{firstname}},\n\nVotre dossier est créé. Cliquez sur le lien sécurisé pour démarrer votre onboarding : {{onboardingUrl}}\n\nL'équipe Atome3D",
+        "Bonjour {{firstname}},\n\nVotre dossier est créé. Cliquez sur le lien sécurisé pour démarrer votre onboarding : {{onboardingUrl}}\n\nL'équipe Zonara",
       bodyHtml:
-        "<p>Bonjour {{firstname}},</p><p>Votre dossier est créé. Cliquez sur le lien sécurisé pour démarrer votre onboarding : <a href='{{onboardingUrl}}'>Activer mon espace</a></p><p>L'équipe Atome3D</p>"
+        "<p>Bonjour {{firstname}},</p><p>Votre dossier est créé. Cliquez sur le lien sécurisé pour démarrer votre onboarding : <a href='{{onboardingUrl}}'>Activer mon espace</a></p><p>L'équipe Zonara</p>"
+    }
+  });
+
+  await prisma.emailTemplate.upsert({
+    where: { slug: "candidate-application-invitation" },
+    update: {},
+    create: {
+      slug: "candidate-application-invitation",
+      subject: "Complétez votre dossier de candidature Zonara",
+      bodyText:
+        "Bonjour {{firstname}},\n\nVotre dossier de candidature est prêt. Merci de le compléter en suivant ce lien sécurisé : {{applicationUrl}}\n\nL'équipe Zonara",
+      bodyHtml:
+        "<p>Bonjour {{firstname}},</p><p>Votre dossier de candidature est prêt. Merci de le compléter en suivant ce lien sécurisé : <a href='{{applicationUrl}}'>Compléter mon dossier</a></p><p>L'équipe Zonara</p>"
+    }
+  });
+
+  await prisma.emailTemplate.upsert({
+    where: { slug: "candidate-application-visio" },
+    update: {},
+    create: {
+      slug: "candidate-application-visio",
+      subject: "Votre dossier est complet, planifions notre visio {{brandName}}",
+      bodyText:
+        "Bonjour {{firstname}},\n\nMerci d'avoir pris le temps de completer votre dossier de candidature pour la franchise {{brandName}}.\n\nJe vous invite maintenant a reserver le creneau de visio qui vous convient en suivant ce lien : {{bookingUrl}}\n\nCette visio nous permettra d'echanger sur votre projet et de repondre a vos questions.\n\nAu plaisir !",
+      bodyHtml:
+        "<p>Bonjour {{firstname}},</p><p>Merci d'avoir pris le temps de completer votre dossier de candidature pour la franchise {{brandName}}.</p><p>Je vous invite maintenant a reserver le creneau de visio qui vous convient en suivant ce lien : <a href='{{bookingUrl}}'>Reserver ma visio</a></p><p>Cette visio nous permettra d'echanger sur votre projet et de repondre a vos questions.</p><p>Au plaisir !</p>"
     }
   });
 }

@@ -59,19 +59,25 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        token.role = user.role;
-        token.firstname = (user as { firstname?: string }).firstname;
-        token.lastname = (user as { lastname?: string }).lastname;
+        const authUser = user as typeof user & {
+          role?: string;
+          firstname?: string;
+          lastname?: string;
+        };
+        token.role = authUser.role;
+        token.firstname = authUser.firstname;
+        token.lastname = authUser.lastname;
       }
       return token;
     },
     async session({ session, token }) {
       if (session.user) {
+        const role = token.role ?? "CANDIDATE";
         session.user.id = token.sub!;
-        session.user.role = token.role;
+        session.user.role = role;
         session.user.firstname = token.firstname;
         session.user.lastname = token.lastname;
-        session.user.redirectTo = ROLE_REDIRECTS[token.role as keyof typeof ROLE_REDIRECTS];
+        session.user.redirectTo = ROLE_REDIRECTS[role as keyof typeof ROLE_REDIRECTS];
       }
       return session;
     }

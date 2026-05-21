@@ -1,11 +1,13 @@
-import dynamic from "next/dynamic";
+import nextDynamic from "next/dynamic";
 import { CandidatesTable } from "@/components/admin/candidates-table";
 import { DashboardStats } from "@/components/admin/dashboard-stats";
 import { prisma } from "@/lib/db/prisma";
 import { getCandidateList } from "@/lib/services/candidate";
 import { getStepDeadlineDays } from "@/lib/utils/deadlines";
 
-const FranceMap = dynamic(() => import("@/components/maps/france-map").then((mod) => mod.FranceMap), {
+export const dynamic = "force-dynamic";
+
+const FranceMap = nextDynamic(() => import("@/components/maps/france-map").then((mod) => mod.FranceMap), {
   ssr: false
 });
 

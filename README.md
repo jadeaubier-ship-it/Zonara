@@ -1,6 +1,6 @@
-# Atome3D CRM Franchise
+# Zonara CRM Franchise
 
-Application full-stack Next.js 14 pour le recrutement de franchisés Atome3D.
+Application full-stack Next.js 14 pour le recrutement de franchisés Zonara.
 
 ## Stack
 
