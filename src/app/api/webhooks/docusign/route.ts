@@ -2,6 +2,7 @@ import { addDays } from "date-fns";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { createDipLegalDelayCalendarEvent } from "@/lib/integrations/google-calendar";
+import { syncCandidateContractEnvelopeState } from "@/lib/services/docusign-sync";
 import { logEvent } from "@/lib/services/event-log";
 
 export async function POST(request: NextRequest) {
@@ -14,7 +15,7 @@ export async function POST(request: NextRequest) {
     data: { status: status === "completed" ? "COMPLETED" : "DELIVERED" }
   });
 
-  if (status === "completed") {
+  if (status === "completed" && envelope.stepNumber === 5) {
     await logEvent({
       actionType: "DIP_RECEIPT_SIGNED",
       candidateId: envelope.candidateId,
@@ -46,6 +47,10 @@ export async function POST(request: NextRequest) {
         });
       });
     }
+  }
+
+  if (status === "completed" && envelope.stepNumber === 8) {
+    await syncCandidateContractEnvelopeState(envelope.candidateId, { force: true }).catch(() => null);
   }
 
   return NextResponse.json({ success: true });

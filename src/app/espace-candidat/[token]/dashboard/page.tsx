@@ -1,7 +1,7 @@
 import dynamic from "next/dynamic";
 import { Card } from "@/components/ui/card";
 import { prisma } from "@/lib/db/prisma";
-import { getCandidatePortalContext } from "@/lib/services/candidate-portal";
+import { getCandidatePortalCandidate } from "@/lib/services/candidate-portal";
 
 const FranceMap = dynamic(() => import("@/components/maps/france-map").then((mod) => mod.FranceMap), {
   ssr: false
@@ -12,7 +12,7 @@ export default async function CandidatePortalDashboardPage({
 }: {
   params: { token: string };
 }) {
-  await getCandidatePortalContext(params.token);
+  await getCandidatePortalCandidate(params.token);
   const franchisees = await prisma.franchisee.findMany({
     include: { user: true }
   });

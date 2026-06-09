@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getCandidatePortalContext } from "@/lib/services/candidate-portal";
+import { getCandidatePortalLayoutContext } from "@/lib/services/candidate-portal";
 
 export default async function CandidatePortalLayout({
   children,
@@ -8,7 +8,7 @@ export default async function CandidatePortalLayout({
   children: React.ReactNode;
   params: { token: string };
 }) {
-  const { settings } = await getCandidatePortalContext(params.token);
+  const { settings } = await getCandidatePortalLayoutContext();
 
   return (
     <main className="mx-auto min-h-screen max-w-6xl px-6 py-6">

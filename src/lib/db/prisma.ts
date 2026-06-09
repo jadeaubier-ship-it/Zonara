@@ -17,17 +17,39 @@ if (!connectionString) {
   throw new Error("DATABASE_URL manquante");
 }
 
+function createPoolConfig(databaseUrl: string) {
+  try {
+    const parsed = new URL(databaseUrl);
+
+    return {
+      host: parsed.hostname,
+      port: Number(parsed.port || 5432),
+      database: parsed.pathname.replace(/^\//, "") || "postgres",
+      user: decodeURIComponent(parsed.username),
+      password: decodeURIComponent(parsed.password),
+      ssl:
+        databaseUrl.includes("supabase.com")
+          ? {
+              rejectUnauthorized: false
+            }
+          : undefined
+    };
+  } catch {
+    return {
+      connectionString: databaseUrl,
+      ssl:
+        databaseUrl.includes("supabase.com")
+          ? {
+              rejectUnauthorized: false
+            }
+          : undefined
+    };
+  }
+}
+
 const pool =
   global.pgPool ??
-  new Pool({
-    connectionString,
-    ssl:
-      connectionString.includes("supabase.com")
-        ? {
-            rejectUnauthorized: false
-          }
-        : undefined
-  });
+  new Pool(createPoolConfig(connectionString));
 
 const adapter = global.prismaAdapter ?? new PrismaPg(pool);
 

@@ -570,7 +570,11 @@ export function SettingsPanel({
         <EditModal title="Enseigne" onClose={() => setBrandEditorOpen(false)}>
             <div className="grid gap-4">
               <Field label="Nom de l’enseigne" value={brandName} onChange={setBrandName} />
-              <Field label="Adresse d’envoi générique" value={senderEmail} onChange={setSenderEmail} />
+              <Field
+                label="Adresse générique / signature Atome3D"
+                value={senderEmail}
+                onChange={setSenderEmail}
+              />
               <Field label="Nom du super admin" value={superAdminName} onChange={setSuperAdminName} />
               <Field label="Mail du super admin" value={superAdminEmail} onChange={setSuperAdminEmail} />
             </div>

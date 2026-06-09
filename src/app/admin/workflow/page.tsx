@@ -170,27 +170,35 @@ export const workflowSections = [
       },
       {
         label: "Stockage complet de la transmission DIP en base",
-        done: false
+        done: true
       },
       {
         label: "Email DocuSign de remise du DIP au candidat",
-        done: false
+        done: true
       },
       {
         label: "Webhook DocuSign sécurisé pour suivre les statuts de l’enveloppe",
         done: false
       },
       {
-        label: "Mise à jour automatique des statuts : envoyé, consulté, signé, refusé, expiré, annulé",
+        label: "Mise à jour automatique des statuts principaux : envoyé et signé",
+        done: true
+      },
+      {
+        label: "Mise à jour complète des statuts secondaires : consulté, refusé, expiré, annulé",
         done: false
       },
       {
-        label: "Récupération automatique du PDF signé, du certificat et de l’audit trail",
+        label: "Récupération automatique du PDF signé",
+        done: true
+      },
+      {
+        label: "Récupération automatique du certificat et de l’audit trail",
         done: false
       },
       {
         label: "Calcul automatique de la fin du délai légal de 20 jours",
-        done: false
+        done: true
       },
       {
         label: "Blocage légal du contrat, des paiements et des validations avant la fin du délai",
@@ -198,10 +206,14 @@ export const workflowSections = [
       },
       {
         label: "Bloc DIP dans la fiche candidat avec statuts, dates et documents probatoires",
-        done: false
+        done: true
       },
       {
-        label: "Actions “Renvoyer” et “Annuler l’enveloppe” depuis l’interface",
+        label: "Action “Renvoyer” depuis l’interface",
+        done: true
+      },
+      {
+        label: "Action “Annuler l’enveloppe” depuis l’interface",
         done: false
       },
       {
@@ -240,6 +252,18 @@ export const workflowSections = [
         done: true
       },
       {
+        label: "Bloc Local dédié côté candidat avec création de dossiers par adresse, plans, photos, loyer HT et charges HT",
+        done: true
+      },
+      {
+        label: "Validation / invalidation d’un projet de local côté développeur avec remontée du statut côté candidat",
+        done: true
+      },
+      {
+        label: "Documents déjà reçus repliables et documents futurs masqués/affichables selon l’étape",
+        done: true
+      },
+      {
         label: "Étape 7 Pièces société dédiée à la validation obligatoire des pièces administratives",
         done: true
       },
@@ -261,20 +285,21 @@ export const workflowSections = [
     title: "Contrat et formation",
     items: [
       {
-        label: "Document “Contrat à générer” dans la fiche candidat",
-        done: false
+        label: "Document “Contrat à envoyer” dans la fiche candidat avec téléchargement des modèles PDF",
+        done: true,
+        contractTemplate: "config"
       },
       {
-        label: "Upload du contrat de réservation de zone et/ou du contrat définitif dans une modale dédiée",
-        done: false
+        label: "Upload du contrat de réservation signé et/ou du contrat définitif signé dans une modale dédiée",
+        done: true
       },
       {
-        label: "Statut contrat en vert seulement quand le contrat définitif est présent",
-        done: false
+        label: "Statut contrat en vert seulement quand le contrat définitif signé est présent",
+        done: true
       },
       {
         label: "Définition des dates de formation dès qu’un contrat est présent",
-        done: false
+        done: true
       },
       {
         label: "Mail automatique à la team formation avec planning PDF",

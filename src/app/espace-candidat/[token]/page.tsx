@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { CandidatePortalDocumentsCard } from "@/components/public/candidate-portal-documents-card";
+import { CandidatePortalLocalProjectsCard } from "@/components/public/candidate-portal-local-projects-card";
 import {
   CANDIDATE_STEP_EXPECTATIONS,
   getCandidatePortalContext
@@ -19,19 +20,68 @@ function formatAppointmentDate(date: Date) {
   }).format(date);
 }
 
+function getAppointmentLabel(appointmentType: string) {
+  if (appointmentType === "DISCOVERY_DAY") return "Journée découverte";
+  if (appointmentType === "DIP_LEGAL_DELAY") return "Fin de délai légal du DIP";
+  if (appointmentType === "FORMATION") return "Formation";
+  return "Visio";
+}
+
+function formatAppointmentDisplay(appointment: { appointmentType: string; startDatetime: Date; endDatetime?: Date }) {
+  if (appointment.appointmentType === "FORMATION") {
+    const start = new Intl.DateTimeFormat("fr-FR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric"
+    }).format(new Date(appointment.startDatetime));
+    const end = new Intl.DateTimeFormat("fr-FR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric"
+    }).format(new Date(appointment.endDatetime ?? appointment.startDatetime));
+
+    return start === end ? `Le ${start}` : `Du ${start} au ${end}`;
+  }
+
+  return formatAppointmentDate(new Date(appointment.startDatetime));
+}
+
 export default async function CandidatePortalHomePage({
   params
 }: {
   params: { token: string };
 }) {
-  const { candidate, documents, applicationData, visibleDocumentStep } = await getCandidatePortalContext(params.token);
+  const { candidate, documents, localProjects, applicationData, visibleDocumentStep, dipLegalDelay, profilePhotoUrl } =
+    await getCandidatePortalContext(params.token);
   const candidateDisplayPhone = candidate.user.phone || applicationData.phone || "";
-  const appointments = candidate.appointments
+  const now = new Date();
+  const activeAppointments = candidate.appointments
     .filter((appointment) => appointment.status !== "CANCELLED")
     .sort((left, right) => left.startDatetime.getTime() - right.startDatetime.getTime());
-  const now = new Date();
-  const upcomingAppointments = appointments.filter((appointment) => new Date(appointment.startDatetime) >= now);
-  const pastAppointments = appointments.filter((appointment) => new Date(appointment.startDatetime) < now);
+  const cancelledAppointments = candidate.appointments
+    .filter((appointment) => appointment.status === "CANCELLED")
+    .sort((left, right) => right.startDatetime.getTime() - left.startDatetime.getTime());
+  const upcomingAppointments = activeAppointments.filter((appointment) => new Date(appointment.startDatetime) >= now);
+  const pastAppointments = activeAppointments.filter((appointment) => new Date(appointment.startDatetime) < now);
+  const dipLegalDelayAppointment = dipLegalDelay
+    ? {
+        id: "dip-legal-delay",
+        appointmentType: "DIP_LEGAL_DELAY",
+        startDatetime: dipLegalDelay.deadline
+      }
+    : null;
+  const upcomingTimeline = dipLegalDelayAppointment && dipLegalDelayAppointment.startDatetime >= now
+    ? [...upcomingAppointments, dipLegalDelayAppointment].sort(
+        (left, right) => new Date(left.startDatetime).getTime() - new Date(right.startDatetime).getTime()
+      )
+    : upcomingAppointments;
+  const pastTimeline = dipLegalDelayAppointment && dipLegalDelayAppointment.startDatetime < now
+    ? [...pastAppointments, dipLegalDelayAppointment].sort(
+        (left, right) => new Date(right.startDatetime).getTime() - new Date(left.startDatetime).getTime()
+      )
+    : pastAppointments;
+  const hasValidatedLocalProject = localProjects.some((project) => project.status === "VALIDATED");
+  const hasSubmittedLocalProject = localProjects.some((project) => project.status !== "VALIDATED");
 
   return (
     <div className="space-y-4">
@@ -41,9 +91,9 @@ export default async function CandidatePortalHomePage({
             href={`/espace-candidat/${params.token}/parametres#profil`}
             className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-3xl border border-slate-200 bg-slate-50 transition hover:border-slate-300"
           >
-            {candidate.documents.find((document) => document.type === "photo_profil")?.fileUrl ? (
+            {profilePhotoUrl ? (
               <img
-                src={candidate.documents.find((document) => document.type === "photo_profil")?.fileUrl}
+                src={profilePhotoUrl}
                 alt={`${candidate.user.firstname} ${candidate.user.lastname}`}
                 className="h-full w-full object-cover"
               />
@@ -128,29 +178,38 @@ export default async function CandidatePortalHomePage({
           </div>
         </Card>
 
-        <CandidatePortalDocumentsCard
-          token={params.token}
-          currentStep={candidate.currentStep}
-          visibleDocumentStep={visibleDocumentStep}
-          initialDocuments={documents}
-        />
+        <div className="space-y-4">
+          <CandidatePortalLocalProjectsCard
+            token={params.token}
+            currentStep={candidate.currentStep}
+            initialProjects={localProjects}
+          />
+          <CandidatePortalDocumentsCard
+            token={params.token}
+            currentStep={candidate.currentStep}
+            visibleDocumentStep={visibleDocumentStep}
+            initialDocuments={documents}
+            hasValidatedLocalProject={hasValidatedLocalProject}
+            hasSubmittedLocalProject={hasSubmittedLocalProject}
+          />
+        </div>
 
         <Card className="space-y-3 p-5">
           <h2 className="text-[16px] font-bold text-slate-950">Mes rendez-vous</h2>
-          {appointments.length ? (
+          {activeAppointments.length || cancelledAppointments.length || dipLegalDelayAppointment ? (
             <div className="space-y-3">
               <div className="space-y-1.5">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
                   À venir
                 </p>
-                {upcomingAppointments.length ? (
-                  upcomingAppointments.map((appointment) => (
+                {upcomingTimeline.length ? (
+                  upcomingTimeline.map((appointment) => (
                     <div key={appointment.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-3.5 py-2">
                       <p className="text-[12px] font-semibold text-slate-950">
-                        {appointment.appointmentType === "DISCOVERY_DAY" ? "Journée découverte" : "Visio"}
+                        {getAppointmentLabel(appointment.appointmentType)}
                       </p>
                       <p className="mt-0.5 text-[12px] leading-4.5 text-slate-600">
-                        {formatAppointmentDate(new Date(appointment.startDatetime))}
+                        {formatAppointmentDisplay(appointment as any)}
                       </p>
                     </div>
                   ))
@@ -163,22 +222,45 @@ export default async function CandidatePortalHomePage({
                 <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
                   Passés
                 </p>
-                {pastAppointments.length ? (
-                  pastAppointments.map((appointment) => (
+                {pastTimeline.length ? (
+                  pastTimeline.map((appointment) => (
                     <div
                       key={appointment.id}
                       className="rounded-2xl border border-slate-200 bg-slate-50/70 px-3.5 py-2 opacity-60"
                     >
                       <p className="text-[12px] font-semibold text-slate-700">
-                        {appointment.appointmentType === "DISCOVERY_DAY" ? "Journée découverte" : "Visio"}
+                        {getAppointmentLabel(appointment.appointmentType)}
                       </p>
                       <p className="mt-0.5 text-[12px] leading-4.5 text-slate-500">
-                        {formatAppointmentDate(new Date(appointment.startDatetime))}
+                        {formatAppointmentDisplay(appointment as any)}
                       </p>
                     </div>
                   ))
                 ) : (
                   <p className="text-[12px] text-slate-400">Aucun rendez-vous passé.</p>
+                )}
+              </div>
+
+              <div className="space-y-1.5">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                  Annulés
+                </p>
+                {cancelledAppointments.length ? (
+                  cancelledAppointments.map((appointment) => (
+                    <div
+                      key={appointment.id}
+                      className="rounded-2xl border border-rose-100 bg-rose-50/70 px-3.5 py-2 opacity-70"
+                    >
+                      <p className="text-[12px] font-semibold text-rose-700">
+                        {getAppointmentLabel(appointment.appointmentType)}
+                      </p>
+                      <p className="mt-0.5 text-[12px] leading-4.5 text-rose-500">
+                        {formatAppointmentDisplay(appointment as any)}
+                      </p>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-[12px] text-slate-400">Aucun rendez-vous annulé.</p>
                 )}
               </div>
             </div>

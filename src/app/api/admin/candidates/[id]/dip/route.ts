@@ -7,8 +7,8 @@ import { getDipTemplateDocuments, getDipTemplateSettings } from "@/lib/services/
 
 async function trySyncCandidateDipEnvelopeState(candidateId: string) {
   await Promise.race([
-    syncCandidateDipEnvelopeState(candidateId),
-    new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500))
+    syncCandidateDipEnvelopeState(candidateId, { skipIfFreshMs: 180_000 }),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 800))
   ]).catch(() => null);
 }
 

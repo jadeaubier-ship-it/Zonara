@@ -55,10 +55,45 @@ type DipPreparationPayload = {
   }>;
 };
 
+type ContractTemplatePayload = {
+  reservationTemplate: {
+    id: string;
+    fileName: string;
+    fileUrl: string;
+    mimeType: string;
+    uploadedAt: string;
+  } | null;
+  definitiveTemplate: {
+    id: string;
+    fileName: string;
+    fileUrl: string;
+    mimeType: string;
+    uploadedAt: string;
+  } | null;
+};
+
 type DrawerDocumentFile = {
   id: string;
   fileUrl?: string | null;
   fileName?: string;
+};
+
+type DrawerNote = {
+  id: string;
+  noteText: string;
+  createdAt: string;
+  author: {
+    id: string;
+    firstname: string;
+    lastname: string;
+  };
+};
+
+type DrawerHistoryItem = {
+  id: string;
+  date: string;
+  title: string;
+  description: string;
 };
 
 const DOCUMENT_LABELS: Array<{ type: string; label: string }> = [
@@ -67,8 +102,6 @@ const DOCUMENT_LABELS: Array<{ type: string; label: string }> = [
   { type: "retour_journee_decouverte", label: "Retour de la journée découverte" },
   { type: "elm", label: "ELM" },
   { type: "dip", label: "DIP" },
-  { type: "plans_local", label: "Plan du local" },
-  { type: "photos_local", label: "Photos du local" },
   { type: "business_plan", label: "Business plan" },
   { type: "kbis", label: "KBIS" },
   { type: "statuts", label: "Statuts de l'entreprise" },
@@ -88,8 +121,6 @@ const DOCUMENT_STEP_BY_TYPE: Record<string, number> = {
   retour_journee_decouverte: 4,
   elm: 5,
   dip: 5,
-  plans_local: 6,
-  photos_local: 6,
   business_plan: 6,
   kbis: 6,
   statuts: 6,
@@ -130,8 +161,6 @@ const DOCUMENT_TYPE_LABELS: Record<string, string> = {
   retour_journee_decouverte: "retour de la journée découverte",
   elm: "ELM",
   dip: "DIP",
-  plans_local: "plan du local",
-  photos_local: "photos du local",
   business_plan: "business plan",
   kbis: "KBIS",
   statuts: "statuts de l'entreprise",
@@ -172,6 +201,12 @@ export function CandidatePreviewDrawer({ candidateId, onClose }: CandidatePrevie
   const [applicationPreviewOpen, setApplicationPreviewOpen] = useState(false);
   const [discoveryFeedbackPreviewOpen, setDiscoveryFeedbackPreviewOpen] = useState(false);
   const [dipPreparationOpen, setDipPreparationOpen] = useState(false);
+  const [contractModalOpen, setContractModalOpen] = useState(false);
+  const [contractTemplateLoading, setContractTemplateLoading] = useState(false);
+  const [contractTemplateData, setContractTemplateData] = useState<ContractTemplatePayload | null>(null);
+  const [trainingStartDate, setTrainingStartDate] = useState("");
+  const [trainingEndDate, setTrainingEndDate] = useState("");
+  const [isSavingTrainingDates, setIsSavingTrainingDates] = useState(false);
   const [dipPreparationLoading, setDipPreparationLoading] = useState(false);
   const [dipPreparationError, setDipPreparationError] = useState("");
   const [dipPreparationData, setDipPreparationData] = useState<DipPreparationPayload | null>(null);
@@ -180,8 +215,12 @@ export function CandidatePreviewDrawer({ candidateId, onClose }: CandidatePrevie
   const [uploadingDocumentType, setUploadingDocumentType] = useState<string | null>(null);
   const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
   const [showFutureDocuments, setShowFutureDocuments] = useState(false);
+  const [showPastDocuments, setShowPastDocuments] = useState(false);
   const [commentDraft, setCommentDraft] = useState("");
   const [isSavingComment, setIsSavingComment] = useState(false);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [activityNotes, setActivityNotes] = useState<DrawerNote[]>([]);
+  const [activityHistoryItems, setActivityHistoryItems] = useState<DrawerHistoryItem[]>([]);
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [editingNoteText, setEditingNoteText] = useState("");
   const [savingNoteId, setSavingNoteId] = useState<string | null>(null);
@@ -190,9 +229,13 @@ export function CandidatePreviewDrawer({ candidateId, onClose }: CandidatePrevie
   const [isTestingDiscoveryFollowup, setIsTestingDiscoveryFollowup] = useState(false);
   const [invitationModalOpen, setInvitationModalOpen] = useState(false);
   const [discoveryInvitationModalOpen, setDiscoveryInvitationModalOpen] = useState(false);
+  const [isSimulatingDipFinished, setIsSimulatingDipFinished] = useState(false);
+  const [processingLocalProjectId, setProcessingLocalProjectId] = useState<string | null>(null);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
   const documentInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [now, setNow] = useState(() => new Date());
+
+  const trainingAppointment = candidate?.appointments?.find((appointment: any) => appointment.appointmentType === "FORMATION") ?? null;
 
   async function openDipPreparationModal() {
     if (!candidate) return;
@@ -241,6 +284,124 @@ export function CandidatePreviewDrawer({ candidateId, onClose }: CandidatePrevie
     }
   }
 
+  async function handleSaveTrainingDates() {
+    if (!candidate) return;
+    if (!trainingStartDate || !trainingEndDate) {
+      setError("Les dates de formation sont obligatoires.");
+      return;
+    }
+
+    setIsSavingTrainingDates(true);
+    setError("");
+
+    try {
+      const response = await fetch(`/api/admin/candidates/${candidate.id}/training-dates`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          startDate: trainingStartDate,
+          endDate: trainingEndDate
+        })
+      });
+
+      const data = (await response.json().catch(() => null)) as { error?: string; advancedToStep9?: boolean } | null;
+      if (!response.ok) {
+        throw new Error(data?.error ?? "Impossible d’enregistrer les dates de formation.");
+      }
+
+      const refreshedCandidate = await syncCandidate(candidate.id);
+      setCandidate(refreshedCandidate);
+      setError(data?.advancedToStep9 ? "Dates de formation enregistrées. Passage à Devis menuisier effectué." : "Dates de formation enregistrées.");
+      setContractModalOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Impossible d’enregistrer les dates de formation.");
+    } finally {
+      setIsSavingTrainingDates(false);
+    }
+  }
+
+  async function handleSimulateDipFinished() {
+    if (!candidate) return;
+
+    const confirmed = window.confirm("Simuler la fin du délai légal du DIP et faire passer le candidat à l’étape suivante ?");
+    if (!confirmed) return;
+
+    setIsSimulatingDipFinished(true);
+    setError("");
+
+    try {
+      const response = await fetch(`/api/admin/candidates/${candidate.id}/dip-finished`, {
+        method: "POST"
+      });
+      const data = (await response.json().catch(() => null)) as { error?: string; alreadyCompleted?: boolean } | null;
+
+      if (!response.ok) {
+        throw new Error(data?.error ?? "Impossible de simuler la fin du délai DIP.");
+      }
+
+      const refreshedCandidate = await syncCandidate(candidate.id);
+      setCandidate(refreshedCandidate);
+      setError(data?.alreadyCompleted ? "La fin du délai DIP était déjà enregistrée." : "Fin du délai DIP simulée.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Impossible de simuler la fin du délai DIP.");
+    } finally {
+      setIsSimulatingDipFinished(false);
+    }
+  }
+
+  async function handleValidateLocalProject(projectId: string) {
+    if (!candidate) return;
+
+    setProcessingLocalProjectId(projectId);
+    setError("");
+
+    try {
+      const response = await fetch(`/api/admin/candidates/${candidate.id}/local-projects/${projectId}`, {
+        method: "PATCH"
+      });
+      const data = (await response.json().catch(() => null)) as { error?: string } | null;
+
+      if (!response.ok) {
+        throw new Error(data?.error ?? "Impossible de valider ce projet de local.");
+      }
+
+      const refreshedCandidate = await syncCandidate(candidate.id);
+      setCandidate(refreshedCandidate);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Impossible de valider ce projet de local.");
+    } finally {
+      setProcessingLocalProjectId(null);
+    }
+  }
+
+  async function handleInvalidateLocalProject(projectId: string) {
+    if (!candidate) return;
+
+    const confirmed = window.confirm("Êtes-vous sûr de vouloir invalider ce local ?");
+    if (!confirmed) return;
+
+    setProcessingLocalProjectId(projectId);
+    setError("");
+
+    try {
+      const response = await fetch(`/api/admin/candidates/${candidate.id}/local-projects/${projectId}`, {
+        method: "DELETE"
+      });
+      const data = (await response.json().catch(() => null)) as { error?: string } | null;
+
+      if (!response.ok) {
+        throw new Error(data?.error ?? "Impossible d'invalider ce projet de local.");
+      }
+
+      const refreshedCandidate = await syncCandidate(candidate.id);
+      setCandidate(refreshedCandidate);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Impossible d'invalider ce projet de local.");
+    } finally {
+      setProcessingLocalProjectId(null);
+    }
+  }
+
   const loadCandidate = async (id: string) => {
     const response = await fetch(`/api/admin/candidates/${id}`);
 
@@ -252,17 +413,25 @@ export function CandidatePreviewDrawer({ candidateId, onClose }: CandidatePrevie
     return response.json();
   };
 
+  const loadCandidateActivity = async (id: string) => {
+    const response = await fetch(`/api/admin/candidates/${id}/activity`);
+
+    if (!response.ok) {
+      const data = (await response.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(data?.error ?? "Impossible de charger l'activité du candidat.");
+    }
+
+    return (await response.json()) as {
+      notes: DrawerNote[];
+      historyItems: DrawerHistoryItem[];
+    };
+  };
+
   const syncCandidate = async (id: string) => {
     const data = await loadCandidate(id);
 
     setCandidate((current: any) => {
-      if (
-        current &&
-        (current.currentStep !== data.currentStep ||
-          current.updatedAt !== data.updatedAt ||
-          current.city !== data.city ||
-          current.projectZone !== data.projectZone)
-      ) {
+      if (current && current.currentStep !== data.currentStep) {
         window.setTimeout(() => router.refresh(), 0);
       }
 
@@ -270,6 +439,19 @@ export function CandidatePreviewDrawer({ candidateId, onClose }: CandidatePrevie
     });
 
     return data;
+  };
+
+  const syncCandidateActivity = async (id: string) => {
+    setActivityLoading(true);
+
+    try {
+      const data = await loadCandidateActivity(id);
+      setActivityNotes(data.notes ?? []);
+      setActivityHistoryItems(data.historyItems ?? []);
+      return data;
+    } finally {
+      setActivityLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -296,10 +478,38 @@ export function CandidatePreviewDrawer({ candidateId, onClose }: CandidatePrevie
   }, [candidateId]);
 
   useEffect(() => {
+    if (!candidateId) return;
+
+    let isActive = true;
+    setActivityLoading(true);
+
+    loadCandidateActivity(candidateId)
+      .then((data) => {
+        if (!isActive) return;
+        setActivityNotes(data.notes ?? []);
+        setActivityHistoryItems(data.historyItems ?? []);
+      })
+      .catch(() => {
+        if (!isActive) return;
+        setActivityNotes([]);
+        setActivityHistoryItems([]);
+      })
+      .finally(() => {
+        if (isActive) setActivityLoading(false);
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [candidateId]);
+
+  useEffect(() => {
     if (!candidateId) {
       setCandidate(null);
       setError("");
       setStepPickerOpen(false);
+      setActivityNotes([]);
+      setActivityHistoryItems([]);
     }
   }, [candidateId]);
 
@@ -310,6 +520,52 @@ export function CandidatePreviewDrawer({ candidateId, onClose }: CandidatePrevie
 
     return () => window.clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (!contractModalOpen) return;
+
+    if (trainingAppointment) {
+      setTrainingStartDate(format(new Date(trainingAppointment.startDatetime), "yyyy-MM-dd"));
+      setTrainingEndDate(format(new Date(trainingAppointment.endDatetime), "yyyy-MM-dd"));
+    } else {
+      setTrainingStartDate("");
+      setTrainingEndDate("");
+    }
+  }, [contractModalOpen, trainingAppointment]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadContractTemplates() {
+      if (!contractModalOpen) return;
+
+      setContractTemplateLoading(true);
+      try {
+        const response = await fetch("/api/admin/contract-template");
+        if (!response.ok) {
+          throw new Error("Impossible de charger les modèles de contrat.");
+        }
+        const data = (await response.json()) as ContractTemplatePayload;
+        if (!cancelled) {
+          setContractTemplateData(data);
+        }
+      } catch {
+        if (!cancelled) {
+          setContractTemplateData(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setContractTemplateLoading(false);
+        }
+      }
+    }
+
+    void loadContractTemplates();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [contractModalOpen]);
 
   const currentStepLabel = candidate ? STEP_LABELS[candidate.currentStep - 1] ?? `Étape ${candidate.currentStep}` : "";
   const currentStepTheme = candidate ? getStepTheme(candidate.currentStep) : getStepTheme(1);
@@ -370,6 +626,22 @@ export function CandidatePreviewDrawer({ candidateId, onClose }: CandidatePrevie
   const isApplicationComplete =
     REQUIRED_APPLICATION_DRAWER_KEYS.every((key) => applicationFormData[key].trim().length > 0) && hasProfilePhoto && hasCv;
   const latestDipEnvelope = candidate?.docusignEnvelopes?.find((envelope: any) => envelope.stepNumber === 5) ?? null;
+  const contractReservationFiles = useMemo(
+    () =>
+      candidate?.documents
+        ?.filter((entry: any) => entry.type === "contrat_reservation_zone")
+        .sort((a: any, b: any) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime()) ?? [],
+    [candidate]
+  );
+  const definitiveContractFiles = useMemo(
+    () =>
+      candidate?.documents
+        ?.filter((entry: any) => entry.type === "contrat_definitif")
+        .sort((a: any, b: any) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime()) ?? [],
+    [candidate]
+  );
+  const hasAnyContract = contractReservationFiles.length > 0 || definitiveContractFiles.length > 0;
+  const hasDefinitiveContract = definitiveContractFiles.length > 0;
   const dipLegalDelay = useMemo(() => {
     if (!candidate || candidate.currentStep !== 5 || latestDipEnvelope?.status !== "COMPLETED" || !latestDipEnvelope?.updatedAt) {
       return null;
@@ -404,9 +676,11 @@ export function CandidatePreviewDrawer({ candidateId, onClose }: CandidatePrevie
             ? isDipSigned || documents.length > 0 || Boolean(dipEnvelopeStatus)
             : item.type === "questionnaire"
             ? isApplicationComplete
-            : item.type === "retour_journee_decouverte"
-              ? hasDiscoveryFeedback
-              : documents.length > 0,
+              : item.type === "retour_journee_decouverte"
+                ? hasDiscoveryFeedback
+                : item.type === "contrat_reservation_zone" || item.type === "contrat_definitif"
+                  ? false
+                  : documents.length > 0,
         dipState: item.type === "dip" ? (isDipSigned ? "signed" : isDipSent ? "sent" : isDipPending ? "pending" : "default") : "default",
         displayLabel:
           item.type === "dip"
@@ -451,7 +725,11 @@ export function CandidatePreviewDrawer({ candidateId, onClose }: CandidatePrevie
     () =>
       documentRows.filter((document) => {
         const stepNumber = DOCUMENT_STEP_BY_TYPE[document.type] ?? 99;
-        return document.exists || stepNumber <= visibleDocumentStep;
+        return (
+          document.type !== "contrat_reservation_zone" &&
+          document.type !== "contrat_definitif" &&
+          (document.exists || stepNumber <= visibleDocumentStep)
+        );
       }),
     [documentRows, visibleDocumentStep]
   );
@@ -460,162 +738,35 @@ export function CandidatePreviewDrawer({ candidateId, onClose }: CandidatePrevie
     () =>
       documentRows.filter((document) => {
         const stepNumber = DOCUMENT_STEP_BY_TYPE[document.type] ?? 99;
-        return !document.exists && stepNumber > visibleDocumentStep;
+        return (
+          document.type !== "contrat_reservation_zone" &&
+          document.type !== "contrat_definitif" &&
+          !document.exists &&
+          stepNumber > visibleDocumentStep
+        );
       }),
     [documentRows, visibleDocumentStep]
   );
 
-  const historyItems = useMemo(() => {
-    if (!candidate) return [];
+  const archivedDocumentRows = useMemo(
+    () =>
+      candidate?.currentStep >= 6
+        ? currentDocumentRows.filter((document) =>
+            ["questionnaire", "cv", "retour_journee_decouverte", "elm"].includes(document.type)
+          )
+        : [],
+    [candidate?.currentStep, currentDocumentRows]
+  );
 
-    const appointmentItems = (candidate.appointments ?? [])
-      .filter((appointment: any) => appointment.status !== "CANCELLED")
-      .map((appointment: any) => {
-      const isDiscoveryDay = appointment.appointmentType === "DISCOVERY_DAY";
-      const interlocutorName = candidate.assignedDev
-        ? `${candidate.assignedDev.firstname} ${candidate.assignedDev.lastname}`
-        : "Atome3D";
-
-      return {
-        id: `appointment-${appointment.id}`,
-        date: new Date(appointment.startDatetime),
-        title: isDiscoveryDay ? "Journée découverte planifiée" : "Visio planifiée",
-        description: `${isDiscoveryDay ? "Journée découverte" : "RDV visio"} prévue le ${formatHistoryDate(
-          appointment.startDatetime
-        )} avec ${interlocutorName}.`
-      };
-    });
-
-    const eventItems = (candidate.eventLogs ?? [])
-      .map((log: any) => {
-        const details = log.detailsJson && typeof log.detailsJson === "object" ? log.detailsJson : {};
-        const actorName = log.user ? `${log.user.firstname} ${log.user.lastname}`.trim() : "Système";
-
-        switch (log.actionType) {
-          case "STEP_CHANGED_MANUALLY": {
-            const previousStep = Number((details as any).previousStep ?? 0);
-            const nextStep = Number((details as any).nextStep ?? 0);
-            return {
-              id: `event-${log.id}`,
-              date: new Date(log.createdAt),
-              title: "Étape modifiée",
-              description: `${actorName} a fait passer le candidat de "${STEP_LABELS[previousStep - 1] ?? `Étape ${previousStep}`}" à "${STEP_LABELS[nextStep - 1] ?? `Étape ${nextStep}`}".`
-            };
-          }
-          case "CANDIDATE_DOCUMENT_UPDATED": {
-            const type = String((details as any).type ?? "");
-            const label = DOCUMENT_TYPE_LABELS[type] ?? type;
-            if ((details as any).deletedFileName) {
-              return {
-                id: `event-${log.id}`,
-                date: new Date(log.createdAt),
-                title: "Document supprimé",
-                description: `${actorName} a supprimé ${(details as any).deletedFileName} (${label}).`
-              };
-            }
-
-            return {
-              id: `event-${log.id}`,
-              date: new Date(log.createdAt),
-              title: "Document mis à jour",
-              description: `${actorName} a ajouté ou remplacé ${(details as any).fileName ?? "un document"} (${label}).`
-            };
-          }
-          case "CANDIDATE_APPLICATION_UPDATED":
-            return {
-              id: `event-${log.id}`,
-              date: new Date(log.createdAt),
-              title: "Dossier de candidature mis à jour",
-              description: `${actorName} a mis à jour le dossier de candidature.`
-            };
-          case "CANDIDATE_APPLICATION_COMPLETED":
-            return {
-              id: `event-${log.id}`,
-              date: new Date(log.createdAt),
-              title: "Dossier de candidature complété",
-              description: "Le candidat a complété son dossier de candidature."
-            };
-          case "DISCOVERY_FEEDBACK_SUBMITTED":
-            return {
-              id: `event-${log.id}`,
-              date: new Date(log.createdAt),
-              title: "Retour de journée découverte reçu",
-              description: "Le formulaire de retour de la journée découverte a été complété."
-            };
-          case "DISCOVERY_DAY_INVITED":
-            return {
-              id: `event-${log.id}`,
-              date: new Date(log.createdAt),
-              title: "Invitation journée découverte envoyée",
-              description: `${actorName} a envoyé l'invitation à la journée découverte.`
-            };
-          case "CALENDAR_APPOINTMENT_CANCELLED": {
-            const appointmentType = String((details as any).appointmentType ?? "");
-            return {
-              id: `event-${log.id}`,
-              date: new Date(log.createdAt),
-              title: "Rendez-vous annulé",
-              description:
-                appointmentType === "DISCOVERY_DAY" ? "Journée découverte annulée" : "RDV visio annulé"
-            };
-          }
-          case "CALENDAR_APPOINTMENT_RESCHEDULED": {
-            const appointmentType = String((details as any).appointmentType ?? "");
-            const startDatetime = typeof (details as any).startDatetime === "string" ? (details as any).startDatetime : log.createdAt;
-            return {
-              id: `event-${log.id}`,
-              date: new Date(log.createdAt),
-              title: "Rendez-vous déplacé",
-              description: `${
-                appointmentType === "DISCOVERY_DAY" ? "Journée découverte déplacée" : "RDV visio déplacé"
-              } au ${formatHistoryDate(startDatetime)}`
-            };
-          }
-          case "DISCOVERY_FOLLOWUP_SENT":
-            return {
-              id: `event-${log.id}`,
-              date: new Date(log.createdAt),
-              title: "Suivi après journée découverte envoyé",
-              description: "Le mail de retour de journée découverte et la notification mapping ont été envoyés."
-            };
-          case "CANDIDATE_APPLICATION_INVITED":
-            return {
-              id: `event-${log.id}`,
-              date: new Date(log.createdAt),
-              title: "Invitation dossier envoyée",
-              description: `${actorName} a envoyé le mail d'invitation au dossier de candidature.`
-            };
-          case "CANDIDATE_PHOTO_UPDATED":
-            return {
-              id: `event-${log.id}`,
-              date: new Date(log.createdAt),
-              title: "Photo mise à jour",
-              description: `${actorName} a mis à jour la photo du candidat.`
-            };
-          case "CANDIDATE_ARCHIVED":
-            return {
-              id: `event-${log.id}`,
-              date: new Date(log.createdAt),
-              title: "Candidat archivé",
-              description: `${actorName} a archivé le candidat.`
-            };
-          case "CANDIDATE_UNARCHIVED":
-            return {
-              id: `event-${log.id}`,
-              date: new Date(log.createdAt),
-              title: "Candidat désarchivé",
-              description: `${actorName} a désarchivé le candidat.`
-            };
-          default:
-            return null;
-        }
-      })
-      .filter(Boolean);
-
-    return [...appointmentItems, ...eventItems].sort(
-      (a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime()
-    );
-  }, [candidate]);
+  const primaryDocumentRows = useMemo(
+    () =>
+      archivedDocumentRows.length
+        ? currentDocumentRows.filter(
+            (document) => !["questionnaire", "cv", "retour_journee_decouverte", "elm"].includes(document.type)
+          )
+        : currentDocumentRows,
+    [archivedDocumentRows.length, currentDocumentRows]
+  );
 
   const handleStepChange = async (nextStep: number) => {
     if (!candidate || nextStep === candidate.currentStep) {
@@ -854,13 +1005,17 @@ export function CandidatePreviewDrawer({ candidateId, onClose }: CandidatePrevie
         body: formData
       });
 
+      const data = (await response.json().catch(() => null)) as { error?: string; warning?: string } | null;
+
       if (!response.ok) {
-        const data = (await response.json().catch(() => null)) as { error?: string } | null;
         throw new Error(data?.error ?? "Impossible de télécharger le document.");
       }
 
       const refreshedCandidate = await syncCandidate(candidate.id);
       setCandidate(refreshedCandidate);
+      if (data?.warning) {
+        setError(data.warning);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Impossible de télécharger le document.");
     } finally {
@@ -962,8 +1117,7 @@ export function CandidatePreviewDrawer({ candidateId, onClose }: CandidatePrevie
         throw new Error(data?.error ?? "Impossible d'ajouter le commentaire.");
       }
 
-      const refreshedCandidate = await syncCandidate(candidate.id);
-      setCandidate(refreshedCandidate);
+      await syncCandidateActivity(candidate.id);
       setCommentDraft("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Impossible d'ajouter le commentaire.");
@@ -1004,8 +1158,7 @@ export function CandidatePreviewDrawer({ candidateId, onClose }: CandidatePrevie
         throw new Error(data?.error ?? "Impossible de modifier le commentaire.");
       }
 
-      const refreshedCandidate = await syncCandidate(candidate.id);
-      setCandidate(refreshedCandidate);
+      await syncCandidateActivity(candidate.id);
       handleCancelEditNote();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Impossible de modifier le commentaire.");
@@ -1041,8 +1194,7 @@ export function CandidatePreviewDrawer({ candidateId, onClose }: CandidatePrevie
         throw new Error(data?.error ?? "Impossible de supprimer le commentaire.");
       }
 
-      const refreshedCandidate = await loadCandidate(candidate.id);
-      setCandidate(refreshedCandidate);
+      await syncCandidateActivity(candidate.id);
       if (editingNoteId === noteId) {
         handleCancelEditNote();
       }
@@ -1274,10 +1426,68 @@ export function CandidatePreviewDrawer({ candidateId, onClose }: CandidatePrevie
               ) : null}
             </div>
 
+            {candidate.currentStep === 5 && latestDipEnvelope?.status === "COMPLETED" ? (
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => void handleSimulateDipFinished()}
+                  disabled={isSimulatingDipFinished}
+                  className="h-9 rounded-2xl border-amber-200 bg-amber-50 px-4 text-[12px] font-semibold text-amber-800 hover:bg-amber-100"
+                >
+                  {isSimulatingDipFinished ? "Simulation..." : "DIP fini"}
+                </Button>
+              </div>
+            ) : null}
+
             <Card className="p-3">
               <p className="text-base font-bold text-slate-950">Documents</p>
               <div className="mt-2.5 space-y-1">
-                {currentDocumentRows.map((document) => (
+                {archivedDocumentRows.length ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setShowPastDocuments((current) => !current)}
+                      className="flex w-full items-center justify-center rounded-2xl border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] text-slate-500 transition hover:border-slate-300 hover:text-slate-700"
+                    >
+                      <span className="text-base leading-none">{showPastDocuments ? "⌃" : "⌄"}</span>
+                    </button>
+
+                    {showPastDocuments ? (
+                      <div className="space-y-1">
+                        {archivedDocumentRows.map((document) => (
+                          <div
+                            key={document.type}
+                            className="flex items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-2.5 py-1"
+                          >
+                            <div className="flex min-w-0 flex-1 items-start gap-2">
+                              <span className="text-sm text-emerald-600">✓</span>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-[11px] font-medium leading-tight text-slate-950">{document.displayLabel}</p>
+                                {document.files.length ? (
+                                  <div className="mt-0.5 space-y-0">
+                                    {document.files.map((file: { id: string; fileUrl: string; fileName: string }) => (
+                                      <button
+                                        key={file.id}
+                                        type="button"
+                                        onClick={() => void handleOpenDocument(file)}
+                                        className="block text-left text-[10px] leading-tight text-slate-500 transition hover:font-semibold hover:text-slate-700"
+                                      >
+                                        {file.fileName}
+                                      </button>
+                                    ))}
+                                  </div>
+                                ) : null}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </>
+                ) : null}
+
+                {primaryDocumentRows.map((document) => (
                   <div
                     key={document.type}
                     className={`flex items-center justify-between gap-2 rounded-2xl border px-2.5 py-1 ${
@@ -1356,8 +1566,25 @@ export function CandidatePreviewDrawer({ candidateId, onClose }: CandidatePrevie
                         </span>
                       ) : null}
                           </div>
+                        ) : (document.type === "contrat_reservation_zone" || document.type === "contrat_definitif") &&
+                          candidate.currentStep >= 7 ? (
+                          <button
+                            type="button"
+                            onClick={() => documentInputRefs.current[document.type]?.click()}
+                            className={`text-left text-[11px] leading-tight transition hover:underline ${
+                              document.exists ? "font-medium text-slate-950 hover:text-slate-700" : "font-semibold text-rose-600 hover:text-rose-700"
+                            }`}
+                          >
+                            {document.displayLabel}
+                          </button>
                         ) : (
-                          <p className={`text-[11px] leading-tight ${document.exists ? "font-medium text-slate-950" : "text-slate-500"}`}>{document.displayLabel}</p>
+                          <p
+                            className={`text-[11px] leading-tight ${
+                              document.exists ? "font-medium text-slate-950" : "text-slate-500"
+                            }`}
+                          >
+                            {document.displayLabel}
+                          </p>
                         )}
                         {(document as any).secondaryLabel ? (
                           <p className="mt-0.5 text-[10px] leading-tight text-slate-500">
@@ -1368,7 +1595,12 @@ export function CandidatePreviewDrawer({ candidateId, onClose }: CandidatePrevie
                           <div className="mt-0.5 space-y-0">
                             {document.files.map((file: { id: string; fileUrl: string; fileName: string }) => (
                               <div key={file.id} className="flex items-start gap-1.5">
-                                {document.type !== "dip" ? (
+                                {document.type !== "dip" &&
+                                !(
+                                  (document.type === "contrat_reservation_zone" ||
+                                    document.type === "contrat_definitif") &&
+                                  /signé/i.test(file.fileName)
+                                ) ? (
                                   <button
                                     type="button"
                                     onClick={() => void handleDeleteDocument(file.id)}
@@ -1407,6 +1639,243 @@ export function CandidatePreviewDrawer({ candidateId, onClose }: CandidatePrevie
                   </div>
                 ))}
 
+                {candidate.currentStep >= 8 ? (
+                  <div
+                    className={`flex items-center justify-between gap-2 rounded-2xl px-2.5 py-1 ${
+                      hasDefinitiveContract
+                        ? "border border-emerald-300 bg-emerald-50"
+                        : hasAnyContract
+                          ? "border border-slate-200 bg-slate-50"
+                          : "border border-rose-200 bg-rose-50"
+                    }`}
+                  >
+                    <div className="flex min-w-0 flex-1 items-start gap-2">
+                      <span
+                        className={`text-sm ${
+                          hasDefinitiveContract
+                            ? "text-emerald-600"
+                            : hasAnyContract
+                              ? "text-slate-300"
+                              : "text-rose-500"
+                        }`}
+                      >
+                        {hasDefinitiveContract ? "✓" : "○"}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <button
+                          type="button"
+                          onClick={() => setContractModalOpen(true)}
+                          className={`text-left text-[11px] leading-tight transition hover:underline ${
+                            hasDefinitiveContract
+                              ? "font-medium text-slate-950 hover:text-slate-700"
+                              : hasAnyContract
+                                ? "font-medium text-slate-950 hover:text-slate-700"
+                                : "font-semibold text-rose-600 hover:text-rose-700"
+                          }`}
+                        >
+                          {hasAnyContract ? "Contrat" : "Contrat à envoyer"}
+                        </button>
+                        {!hasAnyContract ? (
+                          <p className="mt-0.5 text-[10px] leading-tight text-rose-500">
+                            Téléchargez un modèle, complétez-le sur votre ordinateur puis envoyez-le manuellement via DocuSign.
+                          </p>
+                        ) : null}
+                        {contractReservationFiles.length || definitiveContractFiles.length ? (
+                          <div className="mt-0.5 space-y-0">
+                            {[...contractReservationFiles, ...definitiveContractFiles].map((file: any) => (
+                              <div key={file.id} className="flex items-start gap-1.5">
+                                {!/signé/i.test(file.fileName) ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleDeleteDocument(file.id)}
+                                    disabled={deletingDocumentId === file.id}
+                                    className="mt-0.5 text-xs leading-none text-slate-400 transition hover:text-rose-500 disabled:opacity-50"
+                                    aria-label={`Supprimer ${file.fileName}`}
+                                    title="Supprimer ce fichier"
+                                  >
+                                    ×
+                                  </button>
+                                ) : null}
+                                <button
+                                  type="button"
+                                  onClick={() => void handleOpenDocument(file)}
+                                  className="block text-left text-[10px] leading-tight text-slate-500 transition hover:font-semibold hover:text-slate-700"
+                                >
+                                  {file.fileName}
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {candidate.currentStep >= 8 && hasAnyContract ? (
+                  <div
+                    className={`flex items-center justify-between gap-2 rounded-2xl px-2.5 py-1 ${
+                      trainingAppointment
+                        ? "border border-emerald-300 bg-emerald-50"
+                        : "border border-rose-200 bg-rose-50"
+                    }`}
+                  >
+                    <div className="flex min-w-0 flex-1 items-start gap-2">
+                      <span className={`text-sm ${trainingAppointment ? "text-emerald-600" : "text-rose-500"}`}>
+                        {trainingAppointment ? "✓" : "○"}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <button
+                          type="button"
+                          onClick={() => setContractModalOpen(true)}
+                          className={`text-left text-[11px] leading-tight transition hover:underline ${
+                            trainingAppointment
+                              ? "font-medium text-slate-950 hover:text-slate-700"
+                              : "font-semibold text-rose-600 hover:text-rose-700"
+                          }`}
+                        >
+                          {trainingAppointment ? "Dates de formation" : "Dates de formation à définir"}
+                        </button>
+                        {trainingAppointment ? (
+                          <p className="mt-0.5 text-[10px] leading-tight text-slate-500">
+                            Du {format(new Date(trainingAppointment.startDatetime), "dd/MM/yyyy")} au{" "}
+                            {format(new Date(trainingAppointment.endDatetime), "dd/MM/yyyy")}
+                          </p>
+                        ) : (
+                          <p className="mt-0.5 text-[10px] leading-tight text-rose-500">
+                            À définir après réception d’un contrat signé
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {candidate.currentStep >= 6 && !candidate.localProjects?.length ? (
+                  <div
+                    className={`flex items-center justify-between gap-2 rounded-2xl px-2.5 py-1 ${
+                      candidate.currentStep >= 7
+                        ? "border border-rose-200 bg-rose-50"
+                        : "border border-slate-200 bg-slate-50"
+                    }`}
+                  >
+                    <div className="flex min-w-0 flex-1 items-start gap-2">
+                      <span className={`text-sm ${candidate.currentStep >= 7 ? "text-rose-500" : "text-slate-300"}`}>○</span>
+                      <div className="min-w-0 flex-1">
+                        <p className={`text-[11px] leading-tight ${candidate.currentStep >= 7 ? "font-semibold text-rose-600" : "text-slate-500"}`}>Local</p>
+                        <p className={`mt-0.5 text-[10px] leading-tight ${candidate.currentStep >= 7 ? "font-semibold text-rose-500" : "text-slate-400"}`}>
+                          {candidate.currentStep >= 7 ? "Obligatoire à cette étape" : "Projet de local attendu à cette étape"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {candidate.currentStep >= 6 && candidate.localProjects?.length ? (
+                  <div className="space-y-1">
+                    {candidate.localProjects.map((project: any) => (
+                      <div
+                        key={project.id}
+                        className={`rounded-2xl px-2.5 py-1.5 ${
+                          project.status === "VALIDATED"
+                            ? "border border-emerald-300 bg-emerald-50"
+                            : "border border-slate-200 bg-slate-50"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex min-w-0 flex-1 items-start gap-2">
+                          <span
+                            className={`text-sm ${
+                              project.status === "VALIDATED" ? "text-emerald-600" : "text-slate-300"
+                            }`}
+                          >
+                            {project.status === "VALIDATED" ? "✓" : "○"}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="text-[11px] font-medium leading-tight text-slate-950">
+                                {[project.address, project.zipcode, project.city].filter(Boolean).join(", ")}
+                              </p>
+                            </div>
+                            <p className="mt-0.5 text-[10px] leading-tight text-slate-500">
+                              {(() => {
+                                let monthlyRentHt = "";
+                                let monthlyChargesHt = "";
+
+                                if (project.notesCandidate) {
+                                  try {
+                                    const parsed = JSON.parse(project.notesCandidate);
+                                    monthlyRentHt = parsed?.monthlyRentHt ?? "";
+                                    monthlyChargesHt = parsed?.monthlyChargesHt ?? "";
+                                  } catch {}
+                                }
+
+                                return `Loyer HT : ${monthlyRentHt || "—"}€ Charges HT : ${monthlyChargesHt || "—"}€`;
+                              })()}
+                            </p>
+                            {project.files?.length ? (
+                              <div className="mt-0.5 space-y-0">
+                                {project.files.map((file: { id: string; fileType: string }) => {
+                                  const [kind, ...nameParts] = String(file.fileType || "").split("::");
+                                  const fileName =
+                                    nameParts.join("::") ||
+                                    (kind === "plan" ? "Plan du local" : "Photo du local");
+
+                                  return (
+                                    <button
+                                      key={file.id}
+                                      type="button"
+                                      onClick={() =>
+                                        void handleOpenDocument({
+                                          id: file.id,
+                                          fileName,
+                                          fileUrl: `/api/admin/candidates/${candidate.id}/local-projects/${project.id}/files/${file.id}`
+                                        })
+                                      }
+                                      className="block text-left text-[10px] leading-tight text-slate-500 transition hover:font-semibold hover:text-slate-700"
+                                    >
+                                      {fileName}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <p className="mt-0.5 text-[10px] leading-tight text-slate-400">
+                                Aucun fichier téléversé
+                              </p>
+                            )}
+                          </div>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1">
+                            {project.status !== "VALIDATED" ? (
+                              <button
+                                type="button"
+                                onClick={() => void handleValidateLocalProject(project.id)}
+                                disabled={processingLocalProjectId === project.id}
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-full text-sm text-sky-600 transition hover:bg-sky-100 hover:text-sky-700 disabled:opacity-50"
+                                title="Valider ce projet de local"
+                                aria-label="Valider ce projet de local"
+                              >
+                                ✓
+                              </button>
+                            ) : null}
+                            <button
+                              type="button"
+                              onClick={() => void handleInvalidateLocalProject(project.id)}
+                              disabled={processingLocalProjectId === project.id}
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-full text-sm text-rose-600 transition hover:bg-rose-100 hover:text-rose-700 disabled:opacity-50"
+                              title="Invalider ce projet de local"
+                              aria-label="Invalider ce projet de local"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+
                 {futureDocumentRows.length ? (
                   <>
                     <button
@@ -1443,7 +1912,7 @@ export function CandidatePreviewDrawer({ candidateId, onClose }: CandidatePrevie
               <div className="border-b border-slate-200 px-4 py-3">
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-sm font-medium text-slate-700">Tous les commentaires</p>
-                  <span className="text-xs text-slate-400">{candidate.notes.length}</span>
+                  <span className="text-xs text-slate-400">{activityNotes.length}</span>
                 </div>
                 <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
                   <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-sky-500 text-[11px] font-semibold text-white">
@@ -1455,8 +1924,10 @@ export function CandidatePreviewDrawer({ candidateId, onClose }: CandidatePrevie
 
               <div className="max-h-[280px] min-h-[220px] overflow-y-auto px-4 py-3">
                 <div className="space-y-4">
-                  {candidate.notes.length ? (
-                    candidate.notes.map((note: any) => (
+                  {activityLoading ? (
+                    <p className="text-[12px] text-slate-400">Chargement des commentaires...</p>
+                  ) : activityNotes.length ? (
+                    activityNotes.map((note: any) => (
                       <div key={note.id} className="flex items-start gap-3">
                         <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-sky-500 text-[11px] font-semibold text-white">
                           {note.author.firstname?.slice(0, 1)?.toUpperCase() ?? "A"}
@@ -1558,13 +2029,15 @@ export function CandidatePreviewDrawer({ candidateId, onClose }: CandidatePrevie
             <div className="rounded-2xl border border-slate-200/80 bg-slate-50/45 px-4 py-3">
               <div className="mb-2 flex items-center justify-between gap-3">
                 <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-500">Historique</p>
-                <span className="text-[10px] text-slate-400">{historyItems.length}</span>
+                <span className="text-[10px] text-slate-400">{activityHistoryItems.length}</span>
               </div>
 
               <div className="max-h-[220px] min-h-[140px] overflow-y-auto pr-1">
                 <div className="space-y-0">
-                  {historyItems.length ? (
-                    historyItems.map((item: any) => (
+                  {activityLoading ? (
+                    <p className="text-[10px] text-slate-400">Chargement de l'historique...</p>
+                  ) : activityHistoryItems.length ? (
+                    activityHistoryItems.map((item: any) => (
                       <div key={item.id} className="grid grid-cols-[12px_1fr_auto] items-start gap-2 border-l border-slate-200 py-2 pl-2">
                         <span className="mt-1 inline-flex h-2.5 w-2.5 -translate-x-[9px] rounded-sm bg-slate-400" />
                         <div className="min-w-0">
@@ -1704,6 +2177,169 @@ export function CandidatePreviewDrawer({ candidateId, onClose }: CandidatePrevie
                   elmFiles={dipPreparationData.elmFiles}
                 />
               ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {contractModalOpen && candidate ? (
+        <div className="absolute inset-0 z-[2200] flex items-center justify-center p-6">
+          <button
+            type="button"
+            aria-label="Fermer la gestion du contrat"
+            className="absolute inset-0 bg-slate-950/40 backdrop-blur-sm"
+            onClick={() => setContractModalOpen(false)}
+          />
+          <div className="relative z-[2201] w-full max-w-2xl overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
+              <div>
+                <p className="text-sm uppercase tracking-[0.2em] text-[#007cbd]">Contrat et formation</p>
+                <h2 className="mt-2 text-[20px] font-semibold text-slate-950">Contrat à envoyer</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setContractModalOpen(false)}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-xl text-slate-700 hover:bg-slate-200"
+              >
+                ×
+              </button>
+            </div>
+            <div className="space-y-4 bg-slate-50 px-6 py-5">
+              <p className="text-[13px] leading-6 text-slate-600">
+                Téléchargez le modèle souhaité, complétez-le sur votre ordinateur, envoyez-le vous-même via DocuSign, puis réuploadez ici le contrat signé.
+              </p>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <p className="text-[13px] font-semibold text-slate-950">Modèle de réservation de zone</p>
+                  <p className="mt-0.5 text-[11px] text-slate-500">
+                    Téléchargez le PDF central configuré dans le workflow.
+                  </p>
+                  <div className="mt-3">
+                    {contractTemplateLoading ? (
+                      <p className="text-[11px] text-slate-400">Chargement…</p>
+                    ) : contractTemplateData?.reservationTemplate ? (
+                      <a
+                        href={contractTemplateData.reservationTemplate.fileUrl}
+                        download={contractTemplateData.reservationTemplate.fileName}
+                        className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-700 transition hover:border-slate-300"
+                      >
+                        Télécharger le modèle
+                      </a>
+                    ) : (
+                      <p className="text-[11px] text-rose-500">Aucun modèle configuré dans le workflow.</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <p className="text-[13px] font-semibold text-slate-950">Modèle de contrat définitif</p>
+                  <p className="mt-0.5 text-[11px] text-slate-500">
+                    Téléchargez le PDF central configuré dans le workflow.
+                  </p>
+                  <div className="mt-3">
+                    {contractTemplateLoading ? (
+                      <p className="text-[11px] text-slate-400">Chargement…</p>
+                    ) : contractTemplateData?.definitiveTemplate ? (
+                      <a
+                        href={contractTemplateData.definitiveTemplate.fileUrl}
+                        download={contractTemplateData.definitiveTemplate.fileName}
+                        className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-700 transition hover:border-slate-300"
+                      >
+                        Télécharger le modèle
+                      </a>
+                    ) : (
+                      <p className="text-[11px] text-rose-500">Aucun modèle configuré dans le workflow.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[13px] font-semibold text-slate-950">Contrat de réservation signé</p>
+                      <p className="mt-0.5 text-[11px] text-slate-500">Réuploadez ici le document signé après l’envoi manuel.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => documentInputRefs.current.contrat_reservation_zone?.click()}
+                      className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-700 transition hover:border-slate-300"
+                    >
+                      {contractReservationFiles.length ? "Remplacer" : "Téléverser"}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[13px] font-semibold text-slate-950">Contrat définitif signé</p>
+                      <p className="mt-0.5 text-[11px] text-slate-500">Ce document valide la ligne Contrat et sert de référence légale.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => documentInputRefs.current.contrat_definitif?.click()}
+                      className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-700 transition hover:border-slate-300"
+                    >
+                      {definitiveContractFiles.length ? "Remplacer" : "Téléverser"}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <div className="flex flex-col gap-4">
+                    <div>
+                      <p className="text-[13px] font-semibold text-slate-950">Dates de formation</p>
+                      <p className="mt-0.5 text-[11px] text-slate-500">
+                        Dès qu’un contrat signé existe et que les dates sont enregistrées, le candidat passe automatiquement à l’étape Devis menuisier.
+                      </p>
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="space-y-1">
+                        <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">
+                          Début
+                        </span>
+                        <input
+                          type="date"
+                          value={trainingStartDate}
+                          onChange={(event) => setTrainingStartDate(event.target.value)}
+                          className="h-10 w-full rounded-2xl border border-slate-200 bg-white px-3 text-[13px] text-slate-800 outline-none transition focus:border-[#007cbd] focus:ring-2 focus:ring-[#007cbd]/10"
+                        />
+                      </label>
+                      <label className="space-y-1">
+                        <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">
+                          Fin
+                        </span>
+                        <input
+                          type="date"
+                          value={trainingEndDate}
+                          onChange={(event) => setTrainingEndDate(event.target.value)}
+                          className="h-10 w-full rounded-2xl border border-slate-200 bg-white px-3 text-[13px] text-slate-800 outline-none transition focus:border-[#007cbd] focus:ring-2 focus:ring-[#007cbd]/10"
+                        />
+                      </label>
+                    </div>
+
+                    {!hasAnyContract ? (
+                      <p className="text-[11px] text-rose-500">
+                        Ajoutez d’abord un contrat signé pour enregistrer la formation.
+                      </p>
+                    ) : null}
+
+                    <div className="flex items-center justify-end">
+                      <button
+                        type="button"
+                        onClick={() => void handleSaveTrainingDates()}
+                        disabled={!hasAnyContract || !trainingStartDate || !trainingEndDate || isSavingTrainingDates}
+                        className="inline-flex h-10 items-center justify-center rounded-full bg-[#007cbd] px-4 text-[12px] font-semibold text-white transition hover:bg-[#006ba3] disabled:opacity-50"
+                      >
+                        {isSavingTrainingDates ? "Enregistrement..." : trainingAppointment ? "Mettre à jour les dates" : "Enregistrer les dates"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>

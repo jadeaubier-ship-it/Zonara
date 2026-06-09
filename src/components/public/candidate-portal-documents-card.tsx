@@ -14,10 +14,12 @@ type CandidatePortalDocument = {
   exists: boolean;
   href: string | null;
   fileName: string;
+  badgeLabel?: string;
+  secondaryLabel?: string;
   files: Array<{
     id: string;
     fileName: string;
-    fileUrl: string;
+    href: string;
     mimeType: string | null;
   }>;
 };
@@ -29,16 +31,27 @@ function cloneDocuments(documents: CandidatePortalDocument[]) {
   }));
 }
 
+const ALWAYS_COLLAPSED_KEYS = new Set([
+  "contrat_reservation_zone",
+  "plan_3d_local",
+  "devis_menuisier",
+  "devis_menuisier_signe"
+]);
+
 export function CandidatePortalDocumentsCard({
   token,
   currentStep,
   visibleDocumentStep,
-  initialDocuments
+  initialDocuments,
+  hasValidatedLocalProject,
+  hasSubmittedLocalProject
 }: {
   token: string;
   currentStep: number;
   visibleDocumentStep: number;
   initialDocuments: CandidatePortalDocument[];
+  hasValidatedLocalProject: boolean;
+  hasSubmittedLocalProject: boolean;
 }) {
   const [documents, setDocuments] = useState(() => cloneDocuments(initialDocuments));
   const [showFutureDocuments, setShowFutureDocuments] = useState(false);
@@ -49,15 +62,26 @@ export function CandidatePortalDocumentsCard({
 
   const currentDocumentRows = useMemo(
     () =>
-      documents.filter((document) => document.exists || document.visibleFromStep <= visibleDocumentStep),
+      documents.filter(
+        (document) =>
+          !ALWAYS_COLLAPSED_KEYS.has(document.key) &&
+          (document.exists || document.visibleFromStep <= visibleDocumentStep)
+      ),
     [documents, visibleDocumentStep]
   );
 
   const futureDocumentRows = useMemo(
     () =>
-      documents.filter((document) => !document.exists && document.visibleFromStep > visibleDocumentStep),
+      documents.filter(
+        (document) =>
+          ALWAYS_COLLAPSED_KEYS.has(document.key) ||
+          (!document.exists && document.visibleFromStep > visibleDocumentStep)
+      ),
     [documents, visibleDocumentStep]
   );
+
+  const shouldShowLocalPlaceholder = currentStep >= 6 && !hasValidatedLocalProject && !hasSubmittedLocalProject;
+  const isLocalRequiredNow = currentStep >= 7;
 
   async function handleUpload(documentKey: string, event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -99,15 +123,26 @@ export function CandidatePortalDocumentsCard({
         current.map((document) => {
           if (document.key !== documentKey) return document;
 
-          const nextFiles =
-            documentKey === "plans_local" || documentKey === "photos_local"
-              ? [data.document!, ...document.files]
-              : [data.document!];
+            const nextFiles =
+              documentKey === "plans_local" || documentKey === "photos_local"
+              ? [
+                  {
+                    ...data.document!,
+                    href: `/api/public/candidate-space/${token}/documents/${data.document!.id}`
+                  },
+                  ...document.files
+                ]
+              : [
+                  {
+                    ...data.document!,
+                    href: `/api/public/candidate-space/${token}/documents/${data.document!.id}`
+                  }
+                ];
 
           return {
             ...document,
             exists: true,
-            href: nextFiles[0]?.fileUrl ?? null,
+            href: nextFiles[0]?.href ?? null,
             fileName: nextFiles[0]?.fileName ?? "",
             files: nextFiles
           };
@@ -141,31 +176,57 @@ export function CandidatePortalDocumentsCard({
 
       <div className="space-y-1.5">
         {currentDocumentRows.map((document) => {
-          const uploadAllowed = document.candidateCanUpload && currentStep >= document.visibleFromStep;
+          const uploadAllowed =
+            document.candidateCanUpload && currentStep >= document.visibleFromStep && !document.exists;
           const currentStatusLabel = document.isRequiredNow ? "Obligatoire" : "Facultatif";
+          const isRequiredMissing = !document.exists && document.isRequiredNow;
 
           return (
             <div
               key={document.key}
               className={`rounded-2xl border px-3.5 py-2 text-[12px] ${
-                document.exists ? "border-emerald-200 bg-emerald-50" : "border-slate-200 bg-slate-50"
+                document.exists
+                  ? "border-emerald-200 bg-emerald-50"
+                  : isRequiredMissing
+                    ? "border-rose-200 bg-rose-50"
+                    : "border-slate-200 bg-slate-50"
               }`}
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-3">
-                    <span className={document.exists ? "text-emerald-600" : "text-slate-300"}>
+                    <span
+                      className={
+                        document.exists ? "text-emerald-600" : isRequiredMissing ? "text-rose-500" : "text-slate-300"
+                      }
+                    >
                       {document.exists ? "✓" : "○"}
                     </span>
-                    <p className={`font-medium ${document.exists ? "text-slate-950" : "text-slate-600"}`}>{document.label}</p>
+                    <p
+                      className={`font-medium ${
+                        document.exists
+                          ? "text-slate-950"
+                          : isRequiredMissing
+                            ? "font-semibold text-rose-600"
+                            : "text-slate-600"
+                      }`}
+                    >
+                      {document.label}
+                    </p>
+                    {document.badgeLabel ? (
+                      <span className="text-[10px] font-semibold leading-tight text-rose-600">{document.badgeLabel}</span>
+                    ) : null}
                   </div>
 
                   {document.exists ? (
                     <div className="mt-1 space-y-1">
+                      {document.secondaryLabel ? (
+                        <p className="text-[10px] text-slate-500">{document.secondaryLabel}</p>
+                      ) : null}
                       {document.files.map((file) => (
                         <a
                           key={file.id}
-                          href={file.fileUrl}
+                          href={file.href}
                           target="_blank"
                           rel="noreferrer"
                           className="block text-[10px] text-slate-500 transition hover:text-[#007cbd]"
@@ -175,7 +236,9 @@ export function CandidatePortalDocumentsCard({
                       ))}
                     </div>
                   ) : (
-                    <p className="mt-1 text-[10px] text-slate-400">{currentStatusLabel} à cette étape</p>
+                    <p className={`mt-1 text-[10px] ${isRequiredMissing ? "font-semibold text-rose-500" : "text-slate-400"}`}>
+                      {currentStatusLabel} à cette étape
+                    </p>
                   )}
                 </div>
 
@@ -188,13 +251,7 @@ export function CandidatePortalDocumentsCard({
                         disabled={uploadingKey === document.key}
                         className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-700 transition hover:border-slate-300 disabled:opacity-60"
                       >
-                        {uploadingKey === document.key
-                          ? "Envoi..."
-                          : document.exists
-                            ? document.key === "plans_local" || document.key === "photos_local"
-                              ? "Ajouter"
-                              : "Remplacer"
-                            : "Téléverser"}
+                        {uploadingKey === document.key ? "Envoi..." : "Téléverser"}
                       </button>
                       <input
                         ref={(node) => {
@@ -212,6 +269,50 @@ export function CandidatePortalDocumentsCard({
             </div>
           );
         })}
+
+        {shouldShowLocalPlaceholder ? (
+          <div
+            className={`rounded-2xl border px-3.5 py-2 text-[12px] ${
+              hasValidatedLocalProject
+                ? "border-emerald-200 bg-emerald-50"
+                : isLocalRequiredNow
+                  ? "border-rose-200 bg-rose-50"
+                  : "border-slate-200 bg-slate-50"
+            }`}
+          >
+            <div className="flex items-start gap-3">
+              <span
+                className={
+                  hasValidatedLocalProject ? "text-emerald-600" : isLocalRequiredNow ? "text-rose-500" : "text-slate-300"
+                }
+              >
+                {hasValidatedLocalProject ? "✓" : "○"}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p
+                  className={`font-medium ${
+                    hasValidatedLocalProject
+                      ? "text-slate-950"
+                      : isLocalRequiredNow
+                        ? "font-semibold text-rose-600"
+                        : "text-slate-600"
+                  }`}
+                >
+                  Local
+                </p>
+                <p className={`mt-1 text-[10px] ${isLocalRequiredNow ? "font-semibold text-rose-500" : "text-slate-400"}`}>
+                  {hasValidatedLocalProject
+                    ? "Projet de local validé"
+                    : hasSubmittedLocalProject
+                      ? "Projet de local en cours d'étude"
+                      : isLocalRequiredNow
+                        ? "Obligatoire à cette étape"
+                        : "Projet de local attendu à cette étape"}
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         {futureDocumentRows.length ? (
           <div className="pt-1">

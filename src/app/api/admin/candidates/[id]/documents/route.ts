@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiRole } from "@/lib/auth/api";
 import { prisma } from "@/lib/db/prisma";
+import { autoAdvanceCandidateFromStep7 } from "@/lib/services/candidate-step-rules";
 import { logEvent } from "@/lib/services/event-log";
 
 const STEP_BY_TYPE: Record<string, number> = {
@@ -81,6 +82,68 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   const fileUrl = await fileToDataUrl(file);
   const stepNumber = STEP_BY_TYPE[type];
 
+  if (type === "contrat_reservation_zone" || type === "contrat_definitif") {
+    const candidateContractState = await prisma.candidate.findUnique({
+      where: { id: params.id },
+      include: {
+        docusignEnvelopes: {
+          where: { stepNumber: 8 },
+          orderBy: { createdAt: "desc" }
+        },
+        eventLogs: {
+          where: { actionType: "CONTRACT_SENT_TO_DOCUSIGN" },
+          orderBy: { createdAt: "desc" }
+        }
+      }
+    });
+
+    const hasActiveSameTypeEnvelope = candidateContractState?.docusignEnvelopes.some((envelope) => {
+      if (!["CREATED", "SENT", "DELIVERED"].includes(envelope.status)) {
+        return false;
+      }
+
+      return candidateContractState.eventLogs.some((log) => {
+        const details = (log.detailsJson ?? {}) as Record<string, unknown>;
+        return (
+          String(details.envelopeId ?? "") === envelope.envelopeId &&
+          String(details.contractType ?? "") === type
+        );
+      });
+    });
+
+    if (hasActiveSameTypeEnvelope) {
+      return NextResponse.json(
+        { error: "Une signature est déjà en cours pour ce contrat." },
+        { status: 409 }
+      );
+    }
+
+    const existingSignedContract = await prisma.document.findFirst({
+      where: {
+        candidateId: params.id,
+        type,
+        fileName: {
+          contains: "signé",
+          mode: "insensitive"
+        }
+      }
+    });
+
+    if (existingSignedContract) {
+      return NextResponse.json(
+        { error: "Ce contrat a déjà été signé et ne peut plus être remplacé." },
+        { status: 409 }
+      );
+    }
+
+    await prisma.document.deleteMany({
+      where: {
+        candidateId: params.id,
+        type
+      }
+    });
+  }
+
   const document = await prisma.document.create({
     data: {
       candidateId: params.id,
@@ -104,6 +167,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     userId: session.user.id,
     detailsJson: { type, fileName: file.name }
   });
+
+  await autoAdvanceCandidateFromStep7(params.id, session.user.id);
 
   return NextResponse.json({
     success: true,
@@ -138,6 +203,16 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
 
   if (!document) {
     return NextResponse.json({ error: "Document introuvable." }, { status: 404 });
+  }
+
+  if (
+    (document.type === "contrat_reservation_zone" || document.type === "contrat_definitif") &&
+    /signé/i.test(document.fileName)
+  ) {
+    return NextResponse.json(
+      { error: "Le contrat signé ne peut plus être supprimé." },
+      { status: 409 }
+    );
   }
 
   await prisma.document.delete({

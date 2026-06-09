@@ -9,6 +9,7 @@ type WorkflowItem = {
   templateSlug?: string;
   previewHref?: string;
   dipTemplate?: "config";
+  contractTemplate?: "config";
 };
 
 type WorkflowSection = {
@@ -61,6 +62,23 @@ type DipTemplatePayload = {
     uploadedAt: string;
     fileUrl: string;
   }>;
+};
+
+type ContractTemplatePayload = {
+  reservationTemplate: {
+    id: string;
+    fileName: string;
+    mimeType: string;
+    uploadedAt: string;
+    fileUrl: string;
+  } | null;
+  definitiveTemplate: {
+    id: string;
+    fileName: string;
+    mimeType: string;
+    uploadedAt: string;
+    fileUrl: string;
+  } | null;
 };
 
 const DIP_VARIABLE_MEMO = [
@@ -754,6 +772,185 @@ function DipTemplateModal({
   );
 }
 
+function ContractTemplateModal({
+  onClose
+}: {
+  onClose: () => void;
+}) {
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState<"reservation" | "definitive" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [template, setTemplate] = useState<ContractTemplatePayload | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadTemplate() {
+      setLoading(true);
+      setError(null);
+      try {
+        const response = await fetch("/api/admin/contract-template");
+        if (!response.ok) {
+          throw new Error("Impossible de charger les modèles de contrat.");
+        }
+        const data = (await response.json()) as ContractTemplatePayload;
+        if (!cancelled) {
+          setTemplate(data);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Impossible de charger les modèles de contrat.");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    void loadTemplate();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function handleUpload(file: File | null, kind: "reservation" | "definitive") {
+    if (!file) return;
+    setUploading(kind);
+    setError(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("kind", kind);
+
+      const response = await fetch("/api/admin/contract-template", {
+        method: "POST",
+        body: formData
+      });
+
+      if (!response.ok) {
+        throw new Error("Impossible d'ajouter ce modèle de contrat.");
+      }
+
+      setTemplate((await response.json()) as ContractTemplatePayload);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Impossible d'ajouter ce modèle de contrat.");
+    } finally {
+      setUploading(null);
+    }
+  }
+
+  async function handleDelete(documentId: string) {
+    if (!window.confirm("Supprimer ce modèle de contrat ?")) return;
+    setError(null);
+    try {
+      const response = await fetch(`/api/admin/contract-template?documentId=${documentId}`, {
+        method: "DELETE"
+      });
+
+      if (!response.ok) {
+        throw new Error("Impossible de supprimer ce modèle de contrat.");
+      }
+
+      setTemplate((await response.json()) as ContractTemplatePayload);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Impossible de supprimer ce modèle de contrat.");
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[5000] overflow-hidden bg-[#f1f3f4]" onClick={onClose}>
+      <div className="flex h-screen w-full flex-col overflow-hidden" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-slate-200 bg-white px-5 py-3">
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-[#007cbd]">Workflow contrat</p>
+            <h2 className="mt-1 text-[18px] font-semibold text-slate-950">Modèles PDF de contrat</h2>
+          </div>
+          <div className="flex items-center gap-3">
+            {error ? <p className="text-[12px] text-rose-600">{error}</p> : null}
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-[12px] font-medium text-slate-700 transition hover:border-slate-950 hover:text-slate-950"
+            >
+              Fermer
+            </button>
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="px-6 py-8 text-sm text-slate-500">Chargement des modèles de contrat…</div>
+        ) : template ? (
+          <div className="min-h-0 flex-1 overflow-y-auto bg-[#f1f3f4] px-6 py-6">
+            <div className="mx-auto grid max-w-[1080px] gap-5 md:grid-cols-2">
+              {[
+                {
+                  key: "reservation" as const,
+                  title: "Modèle de réservation de zone",
+                  description: "Le développeur pourra le télécharger depuis la fiche candidat, le compléter sur son ordinateur puis envoyer la signature manuellement via DocuSign.",
+                  document: template.reservationTemplate
+                },
+                {
+                  key: "definitive" as const,
+                  title: "Modèle de contrat définitif",
+                  description: "Même logique : téléchargement, complétion manuelle, envoi DocuSign manuel puis réupload du contrat signé dans Zonara.",
+                  document: template.definitiveTemplate
+                }
+              ].map((item) => (
+                <div key={item.key} className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-[15px] font-semibold text-slate-950">{item.title}</h3>
+                      <p className="mt-1 text-[12px] leading-5 text-slate-500">{item.description}</p>
+                    </div>
+                    <label className="inline-flex cursor-pointer items-center rounded-2xl border border-slate-300 bg-white px-3 py-2 text-[11px] font-medium text-slate-700 transition hover:border-slate-950 hover:text-slate-950">
+                      {uploading === item.key ? "Import..." : item.document ? "Remplacer" : "Uploader"}
+                      <input
+                        type="file"
+                        accept="application/pdf"
+                        className="hidden"
+                        onChange={(event) => void handleUpload(event.target.files?.[0] ?? null, item.key)}
+                      />
+                    </label>
+                  </div>
+
+                  <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                    {item.document ? (
+                      <div className="flex items-center gap-3">
+                        <a
+                          href={item.document.fileUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block min-w-0 flex-1 truncate text-[12px] font-medium text-slate-900 hover:text-[#007cbd]"
+                        >
+                          {item.document.fileName}
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => void handleDelete(item.document!.id)}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-slate-500 transition hover:bg-white hover:text-rose-600"
+                          aria-label={`Supprimer ${item.document.fileName}`}
+                          title="Supprimer ce modèle"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-slate-400">Aucun modèle PDF enregistré.</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="px-6 py-8 text-sm text-rose-600">{error ?? "Modèles de contrat introuvables."}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function EmailTemplateModal({
   slug,
   onClose
@@ -1056,6 +1253,7 @@ export function WorkflowBoard({
 }) {
   const [selectedTemplateSlug, setSelectedTemplateSlug] = useState<string | null>(null);
   const [dipTemplateMode, setDipTemplateMode] = useState<"config" | null>(null);
+  const [contractTemplateMode, setContractTemplateMode] = useState<"config" | null>(null);
   const [previewPage, setPreviewPage] = useState<{ title: string; href: string } | null>(null);
 
   const doneCount = sections.reduce((total, section) => total + section.items.filter((item) => item.done).length, 0);
@@ -1114,7 +1312,7 @@ export function WorkflowBoard({
                     <div
                       className={`rounded-2xl border px-4 py-3 ${
                         item.done ? "border-emerald-200 bg-emerald-50" : "border-rose-200 bg-rose-50"
-                      } ${item.templateSlug || item.previewHref || item.dipTemplate ? "cursor-pointer transition hover:shadow-sm" : ""}`}
+                      } ${item.templateSlug || item.previewHref || item.dipTemplate || item.contractTemplate ? "cursor-pointer transition hover:shadow-sm" : ""}`}
                     >
                       <div className="flex items-start gap-3">
                         <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-full bg-white/80 px-2 text-xs font-semibold text-slate-600">
@@ -1133,12 +1331,15 @@ export function WorkflowBoard({
                           {item.dipTemplate ? (
                             <p className="text-xs text-slate-500">Cliquer pour configurer le modèle DocuSign, le DIP PDF et les annexes</p>
                           ) : null}
+                          {item.contractTemplate ? (
+                            <p className="text-xs text-slate-500">Cliquer pour configurer les modèles PDF de contrat</p>
+                          ) : null}
                         </div>
                       </div>
                     </div>
                   );
 
-                  if (!item.templateSlug && !item.previewHref && !item.dipTemplate) {
+                  if (!item.templateSlug && !item.previewHref && !item.dipTemplate && !item.contractTemplate) {
                     return <div key={item.label}>{content}</div>;
                   }
 
@@ -1157,6 +1358,10 @@ export function WorkflowBoard({
                         }
                         if (item.dipTemplate) {
                           setDipTemplateMode(item.dipTemplate);
+                          return;
+                        }
+                        if (item.contractTemplate) {
+                          setContractTemplateMode(item.contractTemplate);
                         }
                       }}
                       className="block w-full text-left"
@@ -1173,6 +1378,7 @@ export function WorkflowBoard({
 
       {selectedTemplateSlug ? <EmailTemplateModal slug={selectedTemplateSlug} onClose={() => setSelectedTemplateSlug(null)} /> : null}
       {dipTemplateMode ? <DipTemplateModal onClose={() => setDipTemplateMode(null)} /> : null}
+      {contractTemplateMode ? <ContractTemplateModal onClose={() => setContractTemplateMode(null)} /> : null}
       {previewPage ? <PreviewPageModal title={previewPage.title} href={previewPage.href} onClose={() => setPreviewPage(null)} /> : null}
     </>
   );

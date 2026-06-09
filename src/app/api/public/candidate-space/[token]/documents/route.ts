@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
+import { autoAdvanceCandidateFromStep7 } from "@/lib/services/candidate-step-rules";
 import { logEvent } from "@/lib/services/event-log";
 
 const STEP_BY_TYPE: Record<string, number> = {
@@ -85,6 +86,8 @@ export async function POST(
     userId: candidate.user.id,
     detailsJson: { type, fileName: file.name, source: "candidate-portal" }
   });
+
+  await autoAdvanceCandidateFromStep7(candidate.id, candidate.user.id);
 
   return NextResponse.json({
     success: true,

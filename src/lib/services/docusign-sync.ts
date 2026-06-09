@@ -4,7 +4,24 @@ import { downloadCombinedEnvelopePdf, getEnvelopeStatus } from "@/lib/integratio
 import { prisma } from "@/lib/db/prisma";
 import { logEvent } from "@/lib/services/event-log";
 
-export async function syncCandidateDipEnvelopeState(candidateId: string) {
+const FINAL_DOCUSIGN_STATUSES = new Set(["COMPLETED", "DECLINED", "VOIDED"]);
+
+function getContractSignedFileName(contractType: string, firstname: string, lastname: string) {
+  const prefix =
+    contractType === "contrat_reservation_zone"
+      ? "Contrat de réservation de zone signé"
+      : "Contrat définitif signé";
+
+  return `${prefix} - ${firstname} ${lastname}.pdf`;
+}
+
+export async function syncCandidateDipEnvelopeState(
+  candidateId: string,
+  options?: {
+    force?: boolean;
+    skipIfFreshMs?: number;
+  }
+) {
   const candidate = await prisma.candidate.findUnique({
     where: { id: candidateId },
     include: {
@@ -26,7 +43,21 @@ export async function syncCandidateDipEnvelopeState(candidateId: string) {
 
   const latestEnvelope = candidate.docusignEnvelopes[0];
   if (!latestEnvelope) {
-    return candidate;
+    return null;
+  }
+
+  const skipIfFreshMs = options?.skipIfFreshMs ?? 120_000;
+  const envelopeAgeMs = Date.now() - new Date(latestEnvelope.updatedAt).getTime();
+  const hasFinalStatus = FINAL_DOCUSIGN_STATUSES.has(latestEnvelope.status);
+
+  if (!options?.force) {
+    if (hasFinalStatus && (latestEnvelope.status !== "COMPLETED" || Boolean(latestEnvelope.signedFileUrl))) {
+      return null;
+    }
+
+    if (envelopeAgeMs < skipIfFreshMs) {
+      return null;
+    }
   }
 
   const remoteEnvelope = await getEnvelopeStatus({ envelopeId: latestEnvelope.envelopeId });
@@ -144,44 +175,130 @@ export async function syncCandidateDipEnvelopeState(candidateId: string) {
     });
   }
 
-  return prisma.candidate.findUnique({
+  return null;
+}
+
+export async function syncCandidateContractEnvelopeState(
+  candidateId: string,
+  options?: {
+    force?: boolean;
+    skipIfFreshMs?: number;
+  }
+) {
+  const candidate = await prisma.candidate.findUnique({
     where: { id: candidateId },
     include: {
       user: true,
-      assignedDev: true,
-      steps: {
-        orderBy: { stepNumber: "asc" }
+      docusignEnvelopes: {
+        where: { stepNumber: 8 },
+        orderBy: { createdAt: "desc" }
       },
       documents: {
+        where: {
+          type: {
+            in: ["contrat_reservation_zone", "contrat_definitif"]
+          }
+        },
         orderBy: { uploadedAt: "desc" }
       },
-      localProjects: {
-        include: { files: true, validatedBy: true }
-      },
-      notes: {
-        include: { author: true },
-        orderBy: { createdAt: "desc" }
-      },
-      reminders: {
-        include: { assignedTo: true },
-        orderBy: { dueDate: "asc" }
-      },
       eventLogs: {
-        include: { user: true },
+        where: {
+          actionType: "CONTRACT_SENT_TO_DOCUSIGN"
+        },
         orderBy: { createdAt: "desc" }
-      },
-      appointments: {
-        orderBy: { startDatetime: "desc" }
-      },
-      payments: {
-        orderBy: { createdAt: "desc" }
-      },
-      docusignEnvelopes: {
-        orderBy: { createdAt: "desc" }
-      },
-      emailLogs: {
-        orderBy: { sentAt: "desc" }
       }
     }
   });
+
+  if (!candidate || !candidate.docusignEnvelopes.length) {
+    return null;
+  }
+
+  const skipIfFreshMs = options?.skipIfFreshMs ?? 120_000;
+
+  for (const envelopeRecord of candidate.docusignEnvelopes) {
+    const envelopeAgeMs = Date.now() - new Date(envelopeRecord.updatedAt).getTime();
+    const hasFinalStatus = FINAL_DOCUSIGN_STATUSES.has(envelopeRecord.status);
+
+    if (!options?.force) {
+      if (hasFinalStatus && (envelopeRecord.status !== "COMPLETED" || Boolean(envelopeRecord.signedFileUrl))) {
+        continue;
+      }
+
+      if (envelopeAgeMs < skipIfFreshMs) {
+        continue;
+      }
+    }
+
+    const remoteEnvelope = await getEnvelopeStatus({ envelopeId: envelopeRecord.envelopeId });
+    const nextStatus = remoteEnvelope.status;
+    const wasCompleted = envelopeRecord.status === "COMPLETED";
+    let signedFileUrl = envelopeRecord.signedFileUrl;
+    const signedAt = remoteEnvelope.completedDateTime || remoteEnvelope.statusChangedDateTime || new Date().toISOString();
+
+    if (nextStatus === "COMPLETED" && !signedFileUrl) {
+      signedFileUrl = await downloadCombinedEnvelopePdf({ envelopeId: envelopeRecord.envelopeId });
+    }
+
+    const updatedEnvelope =
+      nextStatus !== envelopeRecord.status || signedFileUrl !== envelopeRecord.signedFileUrl
+        ? await prisma.docuSignEnvelope.update({
+            where: { id: envelopeRecord.id },
+            data: {
+              status:
+                nextStatus === "DELIVERED" ||
+                nextStatus === "COMPLETED" ||
+                nextStatus === "DECLINED" ||
+                nextStatus === "VOIDED"
+                  ? nextStatus
+                  : "SENT",
+              signedFileUrl: signedFileUrl ?? envelopeRecord.signedFileUrl
+            }
+          })
+        : envelopeRecord;
+
+    const sendLog = candidate.eventLogs.find((log) => {
+      const details = (log.detailsJson ?? {}) as Record<string, unknown>;
+      return String(details.envelopeId ?? "") === envelopeRecord.envelopeId;
+    });
+
+    const logDetails = ((sendLog?.detailsJson ?? {}) as Record<string, unknown>) || {};
+    const contractType = String(logDetails.contractType ?? "");
+    const documentId = String(logDetails.documentId ?? "");
+
+    if (
+      nextStatus === "COMPLETED" &&
+      signedFileUrl &&
+      (contractType === "contrat_reservation_zone" || contractType === "contrat_definitif")
+    ) {
+      const targetDocument =
+        candidate.documents.find((document) => document.id === documentId) ??
+        candidate.documents.find((document) => document.type === contractType);
+
+      if (targetDocument) {
+        await prisma.document.update({
+          where: { id: targetDocument.id },
+          data: {
+            fileUrl: signedFileUrl,
+            fileName: getContractSignedFileName(contractType, candidate.user.firstname, candidate.user.lastname),
+            mimeType: "application/pdf"
+          }
+        });
+      }
+    }
+
+    if (nextStatus === "COMPLETED" && !wasCompleted) {
+      await logEvent({
+        actionType: "CONTRACT_SIGNED",
+        candidateId: candidate.id,
+        detailsJson: {
+          envelopeId: updatedEnvelope.envelopeId,
+          signedAt,
+          contractType
+        }
+      });
+    }
+  }
+
+  return null;
 }

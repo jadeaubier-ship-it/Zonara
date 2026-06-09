@@ -10,6 +10,7 @@ import { prisma } from "@/lib/db/prisma";
 import { sendTemplatedEmail } from "@/lib/services/email";
 import { logEvent } from "@/lib/services/event-log";
 import { geocodeFrenchCity } from "@/lib/services/geocoding";
+import { getStep7Requirements } from "@/lib/services/candidate-step-rules";
 import { computeHeatScore } from "@/lib/utils/heat-score";
 import { generateOnboardingToken, onboardingExpiration } from "@/lib/utils/security";
 
@@ -255,6 +256,16 @@ export async function validateStep(params: {
   comment?: string;
   userId?: string;
 }) {
+  if (params.stepNumber === 7) {
+    const requirements = await getStep7Requirements(params.candidateId);
+
+    if (!requirements.isComplete) {
+      throw new Error(
+        `Impossible de finaliser l’étape Pièces société. Il manque ${requirements.missing.join(", ")}.`
+      );
+    }
+  }
+
   const updatedCandidate = await prisma.$transaction(async (tx) => {
     const candidate = await tx.candidate.findUniqueOrThrow({
       where: { id: params.candidateId }

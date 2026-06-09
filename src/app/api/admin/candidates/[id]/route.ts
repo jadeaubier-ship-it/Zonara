@@ -3,15 +3,23 @@ import { NextResponse } from "next/server";
 import { requireApiRole } from "@/lib/auth/api";
 import { prisma } from "@/lib/db/prisma";
 import { logEvent } from "@/lib/services/event-log";
-import { syncCandidateDipEnvelopeState } from "@/lib/services/docusign-sync";
+import { syncCandidateContractEnvelopeState, syncCandidateDipEnvelopeState } from "@/lib/services/docusign-sync";
 import { sendApplicationInvitationEmail } from "@/lib/services/application-workflow";
 import { sendDiscoveryInvitationEmail } from "@/lib/services/discovery-workflow";
+import { getStep7Requirements } from "@/lib/services/candidate-step-rules";
 import { computeHeatScore } from "@/lib/utils/heat-score";
 
 async function trySyncCandidateDipEnvelopeState(candidateId: string) {
   await Promise.race([
-    syncCandidateDipEnvelopeState(candidateId),
-    new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500))
+    syncCandidateDipEnvelopeState(candidateId, { skipIfFreshMs: 180_000 }),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 800))
+  ]).catch(() => null);
+}
+
+async function trySyncCandidateContractEnvelopeState(candidateId: string) {
+  await Promise.race([
+    syncCandidateContractEnvelopeState(candidateId, { skipIfFreshMs: 180_000 }),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 800))
   ]).catch(() => null);
 }
 
@@ -19,7 +27,10 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
   const auth = await requireApiRole(["ADMIN", "DEV"]);
   if (auth.unauthorized) return auth.unauthorized;
 
-  await trySyncCandidateDipEnvelopeState(params.id);
+  await Promise.allSettled([
+    trySyncCandidateDipEnvelopeState(params.id),
+    trySyncCandidateContractEnvelopeState(params.id)
+  ]);
   const candidate = await prisma.candidate.findUnique({
     where: { id: params.id },
     include: {
@@ -62,20 +73,16 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
           stepNumber: true
         }
       },
-      notes: {
-        include: {
-          author: {
-            select: {
-              id: true,
-              firstname: true,
-              lastname: true
-            }
+      eventLogs: {
+        where: {
+          actionType: {
+            in: [
+              "CANDIDATE_APPLICATION_UPDATED",
+              "DISCOVERY_FEEDBACK_SUBMITTED",
+              "CONTRACT_SENT_TO_DOCUSIGN"
+            ]
           }
         },
-        orderBy: { createdAt: "desc" },
-        take: 80
-      },
-      eventLogs: {
         include: {
           user: {
             select: {
@@ -86,7 +93,7 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
           }
         },
         orderBy: { createdAt: "desc" },
-        take: 120
+        take: 12
       },
       appointments: {
         orderBy: { startDatetime: "desc" },
@@ -108,6 +115,26 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
           createdAt: true,
           updatedAt: true,
           signedFileUrl: true
+        }
+      },
+      localProjects: {
+        orderBy: { id: "desc" },
+        select: {
+          id: true,
+          address: true,
+          city: true,
+          zipcode: true,
+          surfaceM2: true,
+          notesCandidate: true,
+          status: true,
+          files: {
+            orderBy: { uploadedAt: "desc" },
+            select: {
+              id: true,
+              fileType: true,
+              uploadedAt: true
+            }
+          }
         }
       }
     }
@@ -207,6 +234,23 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 
   if (!candidate) {
     return NextResponse.json({ error: "Candidat introuvable" }, { status: 404 });
+  }
+
+  if (
+    typeof body.currentStep === "number" &&
+    body.currentStep >= 8 &&
+    candidate.currentStep <= 7
+  ) {
+    const requirements = await getStep7Requirements(params.id);
+
+    if (!requirements.isComplete) {
+      return NextResponse.json(
+        {
+          error: `Impossible de passer à l’étape Contrat et formation. Il manque ${requirements.missing.join(", ")}.`
+        },
+        { status: 409 }
+      );
+    }
   }
 
   try {

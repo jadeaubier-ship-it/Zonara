@@ -8,9 +8,7 @@ export default async function CandidatePortalSettingsPage({
 }: {
   params: { token: string };
 }) {
-  const { candidate } = await getCandidatePortalContext(params.token);
-  const profilePhoto =
-    candidate.documents.find((document) => document.type === "photo_profil")?.fileUrl ?? "";
+  const { candidate, profilePhotoUrl } = await getCandidatePortalContext(params.token);
 
   return (
     <div className="space-y-4">
@@ -29,7 +27,7 @@ export default async function CandidatePortalSettingsPage({
           initialLastname={candidate.user.lastname}
           initialEmail={candidate.user.email}
           initialPhone={candidate.user.phone ?? ""}
-          initialPhotoDataUrl={profilePhoto}
+          initialPhotoDataUrl={profilePhotoUrl ?? ""}
         />
       </Card>
 

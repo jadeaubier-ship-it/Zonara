@@ -295,6 +295,127 @@ export async function createEnvelope(params: {
   };
 }
 
+function countPdfPagesFromBase64(documentBase64: string) {
+  try {
+    const pdfText = Buffer.from(documentBase64, "base64").toString("latin1");
+    const matches = pdfText.match(/\/Type\s*\/Page\b/g);
+    return Math.max(1, matches?.length ?? 1);
+  } catch {
+    return 1;
+  }
+}
+
+function buildInitialTabs(pageCount: number) {
+  return Array.from({ length: pageCount }, (_, index) => ({
+    documentId: "1",
+    pageNumber: String(index + 1),
+    xPosition: "500",
+    yPosition: "742"
+  }));
+}
+
+function buildContractSignatureTabs(pageCount: number) {
+  const signPage = String(pageCount);
+  return {
+    initialHereTabs: buildInitialTabs(pageCount),
+    signHereTabs: [
+      {
+        documentId: "1",
+        pageNumber: signPage,
+        xPosition: "110",
+        yPosition: "685"
+      }
+    ]
+  };
+}
+
+export async function createContractEnvelope(params: {
+  ceoEmail: string;
+  ceoName: string;
+  candidateEmail: string;
+  candidateName: string;
+  ccEmail?: string;
+  ccName?: string;
+  documentBase64: string;
+  fileName: string;
+  emailSubject?: string;
+  emailBlurb?: string;
+}) {
+  if (!process.env.DOCUSIGN_INTEGRATION_KEY) {
+    return {
+      envelopeId: "mock-contract-envelope",
+      status: "SENT"
+    };
+  }
+
+  const apiClient = await getJwtAuthorizedApiClient();
+  const { EnvelopesApi } = loadDocusignRuntime();
+  const envelopesApi = new EnvelopesApi(apiClient);
+  const pageCount = countPdfPagesFromBase64(params.documentBase64);
+
+  try {
+    const summary = await envelopesApi.createEnvelope(getRequiredEnv("DOCUSIGN_ACCOUNT_ID"), {
+      envelopeDefinition: {
+        status: "sent",
+        emailSubject:
+          params.emailSubject ||
+          `Signature du contrat Atome3D - ${params.candidateName}`.trim(),
+        emailBlurb:
+          params.emailBlurb ||
+          "Merci de parapher chaque page du contrat et de signer à l’emplacement prévu.",
+        documents: [
+          {
+            documentBase64: params.documentBase64,
+            name: params.fileName,
+            fileExtension: "pdf",
+            documentId: "1"
+          }
+        ],
+        recipients: {
+          signers: [
+            {
+              email: params.ceoEmail,
+              name: params.ceoName,
+              recipientId: "1",
+              routingOrder: "1",
+              tabs: buildContractSignatureTabs(pageCount)
+            },
+            {
+              email: params.candidateEmail,
+              name: params.candidateName,
+              recipientId: "2",
+              routingOrder: "2",
+              tabs: buildContractSignatureTabs(pageCount)
+            }
+          ],
+          carbonCopies: params.ccEmail
+            ? [
+                {
+                  email: params.ccEmail,
+                  name: params.ccName || params.ccEmail,
+                  recipientId: "3",
+                  routingOrder: "3"
+                }
+              ]
+            : []
+        }
+      }
+    });
+
+    if (!summary.envelopeId) {
+      throw new Error("DocuSign n'a pas retourné d'identifiant d'enveloppe.");
+    }
+
+    return {
+      envelopeId: summary.envelopeId,
+      status: normalizeEnvelopeStatus(summary.status)
+    };
+  } catch (error) {
+    console.error("[DocuSign] createContractEnvelope raw error", inspectDocusignError(error));
+    throw new Error(formatDocusignError(error, "Impossible de créer l'enveloppe contrat DocuSign."));
+  }
+}
+
 export async function resendEnvelope(params: { envelopeId: string }) {
   if (!process.env.DOCUSIGN_INTEGRATION_KEY) {
     return {

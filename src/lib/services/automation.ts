@@ -44,38 +44,82 @@ async function advanceCandidatesAfterDipLegalDelay() {
     const daysSinceSignature = differenceInDays(new Date(), latestCompletedEnvelope.updatedAt);
     if (daysSinceSignature < 20) continue;
 
-    await validateStep({
-      candidateId: candidate.id,
-      stepNumber: 5,
-      userId: undefined
-    });
-
-    await sendTemplatedEmail({
-      templateSlug: "candidate-local-project-opened",
-      to: candidate.user.email,
-      candidateId: candidate.id,
-      replacements: {
-        firstname: candidate.user.firstname
-      }
-    });
-
-    await logEvent({
-      actionType: "DIP_LEGAL_DELAY_COMPLETED",
-      candidateId: candidate.id,
-      detailsJson: {
-        envelopeId: latestCompletedEnvelope.envelopeId,
-        signedAt: latestCompletedEnvelope.updatedAt.toISOString(),
-        advancedAt: new Date().toISOString(),
-        advancedToStep: 6
-      }
-    });
-
+    await completeDipLegalDelayForCandidate(candidate.id);
     advanced += 1;
   }
 
   return {
     advanced
   };
+}
+
+export async function completeDipLegalDelayForCandidate(candidateId: string, userId?: string) {
+  const candidate = await prisma.candidate.findUnique({
+    where: { id: candidateId },
+    include: {
+      user: true,
+      docusignEnvelopes: {
+        where: {
+          stepNumber: 5,
+          status: "COMPLETED"
+        },
+        orderBy: { updatedAt: "desc" }
+      },
+      eventLogs: {
+        where: {
+          actionType: "DIP_LEGAL_DELAY_COMPLETED"
+        },
+        orderBy: { createdAt: "desc" }
+      }
+    }
+  });
+
+  if (!candidate) {
+    throw new Error("Candidat introuvable.");
+  }
+
+  if (candidate.currentStep !== 5) {
+    throw new Error("Le candidat n'est plus à l'étape DIP et ELM.");
+  }
+
+  if (candidate.eventLogs.length > 0) {
+    return { alreadyCompleted: true };
+  }
+
+  const latestCompletedEnvelope = candidate.docusignEnvelopes[0];
+  if (!latestCompletedEnvelope) {
+    throw new Error("Le DIP n'est pas encore signé.");
+  }
+
+  await validateStep({
+    candidateId: candidate.id,
+    stepNumber: 5,
+    userId
+  });
+
+  await sendTemplatedEmail({
+    templateSlug: "candidate-local-project-opened",
+    to: candidate.user.email,
+    candidateId: candidate.id,
+    replacements: {
+      firstname: candidate.user.firstname
+    }
+  });
+
+  await logEvent({
+    actionType: "DIP_LEGAL_DELAY_COMPLETED",
+    candidateId: candidate.id,
+    userId,
+    detailsJson: {
+      envelopeId: latestCompletedEnvelope.envelopeId,
+      signedAt: latestCompletedEnvelope.updatedAt.toISOString(),
+      advancedAt: new Date().toISOString(),
+      advancedToStep: 6,
+      simulated: Boolean(userId)
+    }
+  });
+
+  return { alreadyCompleted: false };
 }
 
 export async function runDailyAutomation() {
